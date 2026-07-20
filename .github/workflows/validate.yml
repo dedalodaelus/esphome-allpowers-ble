@@ -5,53 +5,106 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  lint:
+  quality:
+    name: Code quality
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Install linters and ESPHome type sources
+          cache: pip
+          cache-dependency-path: |
+            requirements-lint.txt
+            requirements-ci.txt
+
+      - name: Install quality dependencies
         run: |
-          pip install -r requirements-lint.txt
-          pip install --no-deps "esphome==2026.7.0"
+          python -m pip install --upgrade pip
+          pip install \
+            -r requirements-lint.txt \
+            -r requirements-ci.txt
+
       - name: Check Python syntax
         run: python -m compileall -q components tests
+
       - name: Ruff lint
         run: ruff check components tests
+
       - name: Ruff format
         run: ruff format --check components tests
+
       - name: Flake8
         run: flake8 components tests
+
       - name: Pylint
         run: pylint components/allpowers_ble tests/test_protocol.py
-      - name: ClangFormat
-        run: clang-format --dry-run --Werror components/allpowers_ble/allpowers_ble.h components/allpowers_ble/allpowers_ble.cpp
-      - name: CppLint
-        run: cpplint components/allpowers_ble/allpowers_ble.h components/allpowers_ble/allpowers_ble.cpp
 
-  protocol-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Run protocol regression tests
+      - name: ClangFormat
+        run: |
+          clang-format --dry-run --Werror \
+            components/allpowers_ble/allpowers_ble.h \
+            components/allpowers_ble/allpowers_ble.cpp
+
+      - name: CppLint
+        run: |
+          cpplint \
+            components/allpowers_ble/allpowers_ble.h \
+            components/allpowers_ble/allpowers_ble.cpp
+
+      - name: Protocol regression tests
         run: python tests/test_protocol.py
 
-  esphome-build:
+  build:
+    name: Build ${{ matrix.name }}
+    needs: quality
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ESP32
+            board: esp32dev
+            device_name: allpowers-ble-ci-esp32
+
+          - name: ESP32-S3
+            board: esp32-s3-devkitc-1
+            device_name: allpowers-ble-ci-esp32-s3
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+
       - name: Install ESPHome
-        run: pip install "esphome==2026.7.0"
-      - name: Validate configuration
-        run: esphome config tests/ci.yaml
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-ci.txt
+
       - name: Compile test firmware
-        run: esphome compile tests/ci.yaml
+        run: |
+          esphome \
+            -s test_board "${{ matrix.board }}" \
+            -s test_device_name "${{ matrix.device_name }}" \
+            compile tests/ci.yaml

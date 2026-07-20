@@ -1,9 +1,13 @@
+substitutions:
+  test_board: esp32dev
+  test_device_name: allpowers-ble-ci
+
 esphome:
-  name: allpowers-ci
+  name: ${test_device_name}
   friendly_name: ALLPOWERS BLE CI
 
 esp32:
-  board: esp32dev
+  board: ${test_board}
   framework:
     type: esp-idf
 
