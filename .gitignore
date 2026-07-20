@@ -1,0 +1,9 @@
+.esphome/
+.vscode/
+.idea/
+__pycache__/
+.ruff_cache/
+*.pyc
+secrets.yaml
+*.log
+build/
