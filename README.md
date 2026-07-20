@@ -1,5 +1,7 @@
 # ESPHome ALLPOWERS BLE
 
+[![Build and Code Quality](https://github.com/dedalodaelus/esphome-allpowers-ble/actions/workflows/validate.yml/badge.svg)](https://github.com/dedalodaelus/esphome-allpowers-ble/actions/workflows/validate.yml)
+
 Experimental ESPHome external component and reusable package for monitoring and controlling
 ALLPOWERS portable power stations that use the BLE protocol implemented by
 [`madninjaskillz/allpowers-ble`](https://github.com/madninjaskillz/allpowers-ble).
