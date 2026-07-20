@@ -65,6 +65,15 @@ jobs:
             components/allpowers_ble/allpowers_ble.h \
             components/allpowers_ble/allpowers_ble.cpp
 
+      - name: YAML lint
+        run: |
+          yamllint \
+            .github/workflows \
+            packages \
+            examples \
+            tests/ci.yaml \
+            home_assistant/allpowers_ble_controls.yaml.example
+
       - name: Protocol regression tests
         run: python tests/test_protocol.py
 

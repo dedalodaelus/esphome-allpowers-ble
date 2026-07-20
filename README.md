@@ -215,6 +215,15 @@ AC frequency is experimental and disabled by default. See [`docs/protocol.md`](d
 
 ## Local validation
 
+Install the pinned dependencies first:
+
+```bash
+pip install -r requirements-lint.txt
+pip install -r requirements-ci.txt
+```
+
+Run the quality checks:
+
 ```bash
 python -m compileall -q components tests
 ruff check components tests
@@ -227,13 +236,30 @@ clang-format --dry-run --Werror \
 cpplint \
   components/allpowers_ble/allpowers_ble.h \
   components/allpowers_ble/allpowers_ble.cpp
+yamllint \
+  .github/workflows \
+  packages \
+  examples \
+  tests/ci.yaml \
+  home_assistant/allpowers_ble_controls.yaml.example
 python tests/test_protocol.py
-esphome config tests/ci.yaml
-esphome compile tests/ci.yaml
 ```
 
-Install the pinned lint tools with `pip install -r requirements-lint.txt`. GitHub Actions runs the same
-Python and C++ checks, the protocol regression tests, configuration validation and a complete ESPHome build.
+Compile both targets used by GitHub Actions:
+
+```bash
+esphome \
+  -s test_board esp32dev \
+  -s test_device_name allpowers-ble-ci-esp32 \
+  compile tests/ci.yaml
+
+esphome \
+  -s test_board esp32-s3-devkitc-1 \
+  -s test_device_name allpowers-ble-ci-esp32-s3 \
+  compile tests/ci.yaml
+```
+
+GitHub Actions runs the same quality checks and compiles both the classic ESP32 and ESP32-S3 targets.
 
 ## Reporting compatibility
 

@@ -34,7 +34,7 @@ for published releases.
 - Regression tests covering status parsing, invalid frames, and all AC/DC/light
   output combinations.
 - GitHub Actions validation for Python linting, C++ formatting and linting,
-  protocol tests, ESPHome configuration validation, and firmware compilation.
+  YAML linting, protocol tests, and ESP32/ESP32-S3 firmware compilation.
 
 ### Changed
 
@@ -49,6 +49,11 @@ for published releases.
   without commenting trivial operations.
 - Aligned Python and C++ formatting and lint configuration with ESPHome project
   conventions.
+- Made `allpowers_mac` a required package variable instead of using a
+  syntactically valid placeholder address.
+- Refactored CI into one code-quality job and an ESP32/ESP32-S3 build matrix.
+- Improved the optional Home Assistant wrappers with block-level unique IDs,
+  predictable default entity IDs, and additional availability checks.
 
 ### Fixed
 

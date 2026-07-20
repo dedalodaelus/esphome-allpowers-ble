@@ -79,7 +79,7 @@ globals:
   # OFF: disconnect and ignore advertisements for this BLE client.
   - id: ${allpowers_id}_ble_connection_requested
     type: bool
-    restore_value: no
+    restore_value: false
     initial_value: '${allpowers_connect_at_boot}'
 
 esp32_ble_tracker:
