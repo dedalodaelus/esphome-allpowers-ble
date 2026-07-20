@@ -34,8 +34,8 @@ wifi:
   password: !secret wifi_password
 
 external_components:
-  # Loads the custom Python/C++ platform from the tagged repository release.
-  - source: github://dedalodaelus/esphome-allpowers-ble@v0.1.0-alpha
+  # Loads the custom Python/C++ platform from the repository branch below.
+  - source: github://dedalodaelus/esphome-allpowers-ble@main
     components:
       - allpowers_ble
 
@@ -44,7 +44,7 @@ packages:
   # allocation above reserves one connection for the power station.
   allpowers_station:
     url: https://github.com/dedalodaelus/esphome-allpowers-ble
-    ref: v0.1.0-alpha
+    ref: main
     refresh: 1d
     files:
       - path: packages/allpowers_ble.yaml

@@ -8,7 +8,9 @@ defaults:
   # Identity and protocol parameters normally changed by users.
   allpowers_id: allpowers
   allpowers_name: "ALLPOWERS Power Station"
-  allpowers_mac: "AA:BB:CC:DD:EE:FF"
+  # No default is provided intentionally. Every package instance must explicitly
+  # pass the BLE MAC address through allpowers_mac.
+  # allpowers_mac: "AA:BB:CC:DD:EE:FF"
   allpowers_service_uuid: "FFF0"
   allpowers_stale_timeout: 30s
 
