@@ -1,0 +1,30 @@
+esphome:
+  name: allpowers-local-test
+  friendly_name: ALLPOWERS Local Test
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+  level: DEBUG
+
+external_components:
+  # Local source keeps code changes immediately available to ESPHome codegen.
+  - source:
+      type: local
+      path: ../components
+    components:
+      - allpowers_ble
+
+packages:
+  # Use the package from the same checkout to test schema and component changes
+  # together before publishing a tag.
+  allpowers_station: !include
+    file: ../packages/allpowers_ble.yaml
+    vars:
+      allpowers_id: allpowers
+      allpowers_name: "ALLPOWERS Power Station"
+      allpowers_mac: "AA:BB:CC:DD:EE:FF"
+      allpowers_connect_at_boot: "false"

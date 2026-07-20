@@ -1,0 +1,64 @@
+name: Bug or compatibility report
+description: Report a reproducible problem or results from another ALLPOWERS model
+title: "[Bug/Compatibility]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Remove Wi-Fi passwords, API keys, OTA passwords and unrelated BLE data before submitting.
+        A successful connection alone does not prove protocol compatibility.
+  - type: input
+    id: model
+    attributes:
+      label: Exact model and hardware revision
+      placeholder: "R600, S300, label revision, serial prefix if relevant"
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Power-station firmware version
+      placeholder: "Version shown by the official app"
+  - type: input
+    id: ble_name
+    attributes:
+      label: BLE local name
+      placeholder: "For example AP S300"
+  - type: input
+    id: esphome_version
+    attributes:
+      label: ESPHome version
+      placeholder: "2026.7.0"
+    validations:
+      required: true
+  - type: input
+    id: board
+    attributes:
+      label: ESP32 board and framework
+      placeholder: "ESP32-S3 DevKitC-1, ESP-IDF"
+    validations:
+      required: true
+  - type: dropdown
+    id: controls_tested
+    attributes:
+      label: Output controls physically tested
+      options:
+        - None; telemetry only
+        - AC only
+        - DC only
+        - Light only
+        - AC, DC and light
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized ESPHome logs
+      render: shell

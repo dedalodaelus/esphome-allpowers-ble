@@ -1,0 +1,54 @@
+# Optional Home Assistant template switches.
+#
+# ESPHome switch states are boolean and cannot become unavailable individually. These wrappers use
+# the component's "Controls Available" binary sensor as an availability condition.
+#
+# Replace the entity IDs below with those created in your Home Assistant instance. Hide, but do not
+# disable, the original ESPHome switches because these wrappers call them.
+
+template:
+  - switch:
+      - name: "ALLPOWERS AC Output"
+        unique_id: allpowers_ac_output_available
+        availability: >-
+          {{ is_state('binary_sensor.allpowers_controls_available', 'on') }}
+        state: >-
+          {{ is_state('binary_sensor.allpowers_ac_output_status', 'on') }}
+        turn_on:
+          - action: switch.turn_on
+            target:
+              entity_id: switch.allpowers_ac_output
+        turn_off:
+          - action: switch.turn_off
+            target:
+              entity_id: switch.allpowers_ac_output
+
+      - name: "ALLPOWERS DC Output"
+        unique_id: allpowers_dc_output_available
+        availability: >-
+          {{ is_state('binary_sensor.allpowers_controls_available', 'on') }}
+        state: >-
+          {{ is_state('binary_sensor.allpowers_dc_output_status', 'on') }}
+        turn_on:
+          - action: switch.turn_on
+            target:
+              entity_id: switch.allpowers_dc_output
+        turn_off:
+          - action: switch.turn_off
+            target:
+              entity_id: switch.allpowers_dc_output
+
+      - name: "ALLPOWERS Light"
+        unique_id: allpowers_light_available
+        availability: >-
+          {{ is_state('binary_sensor.allpowers_controls_available', 'on') }}
+        state: >-
+          {{ is_state('binary_sensor.allpowers_light_status', 'on') }}
+        turn_on:
+          - action: switch.turn_on
+            target:
+              entity_id: switch.allpowers_light
+        turn_off:
+          - action: switch.turn_off
+            target:
+              entity_id: switch.allpowers_light

@@ -1,0 +1,234 @@
+# ESPHome ALLPOWERS BLE
+
+Experimental ESPHome external component and reusable package for monitoring and controlling
+ALLPOWERS portable power stations that use the BLE protocol implemented by
+[`madninjaskillz/allpowers-ble`](https://github.com/madninjaskillz/allpowers-ble).
+
+> [!IMPORTANT]
+> Compatibility is based on the BLE protocol, not the ALLPOWERS brand name alone. This project does
+> **not** claim support for every ALLPOWERS power station. See the compatibility matrix below.
+
+> [!WARNING]
+> This is independent community software. It is not affiliated with or endorsed by ALLPOWERS,
+> ESPHome, Home Assistant or the upstream project author. Treat output controls as alpha software
+> until they have been physically validated on your exact model and firmware.
+
+## Compatibility
+
+The upstream Python library uses one packet layout and the same `FFF1` notification and `FFF2`
+write characteristics for every device it handles. It does not contain separate model profiles.
+The upstream Home Assistant integration advertises support for the S300 and variants whose BLE name
+matches `AP S*`.
+
+| Device or family | Status in this project |
+|---|---|
+| ALLPOWERS R600 | Primary tested target for this ESPHome port |
+| ALLPOWERS S300 | Supported by the upstream implementation; community validation requested |
+| Other `AP S*` devices using the same packet format | Expected to work, but must be validated per model |
+| S500 and S700 V2 | Reported incompatible with the upstream packet parser; not claimed as supported |
+| Other ALLPOWERS models | Unknown until GATT layout and notification frames are confirmed |
+
+A device is compatible only when it exposes the expected service/characteristics and sends the
+same status frame format. See [`docs/compatibility.md`](docs/compatibility.md).
+
+## Features
+
+- Battery level
+- Total input power
+- Total output power
+- Estimated remaining runtime
+- AC, DC and light state
+- AC, DC and light control
+- Charging and discharging indicators derived from power flow
+- BLE connection state: `Disabled`, `Searching` or `Connected`
+- Persistent connection control:
+  - ON searches until connected and reconnects after link loss
+  - OFF disconnects and stops attempting to connect
+- Telemetry becomes unknown after BLE disconnection or stale data
+- Commands are rejected until the BLE link and telemetry are valid
+- Power-station entities appear as a separate Home Assistant subdevice
+- Optional Bluetooth RSSI and protocol diagnostics
+- Multiple instances are supported when each package instance uses a unique `allpowers_id`
+
+## Requirements
+
+- ESP32 with BLE client support
+- ESPHome `2026.7.0` or newer
+- ESP-IDF framework recommended
+- Stable BLE MAC address for the power station
+- A compatible `FFF0`/`FFF1`/`FFF2` GATT layout and packet format
+
+ESP32-S3 is the recommended general-purpose target. A classic ESP32 also works. ESP32-C6 does not
+provide a specific advantage for this protocol.
+
+## Repository layout
+
+```text
+components/allpowers_ble/    ESPHome external component
+packages/allpowers_ble.yaml  Reusable entities, subdevice and connection package
+examples/                    Standalone, Bluetooth Proxy and local examples
+tests/                       Protocol regression tests and CI configuration
+docs/                        Compatibility, protocol, migration and capture notes
+home_assistant/              Optional unavailable-state wrapper switches
+```
+
+## Installation from GitHub
+
+```yaml
+external_components:
+  - source: github://dedalodaelus/esphome-allpowers-ble@devel
+    components:
+      - allpowers_ble
+
+packages:
+  allpowers_station:
+    url: https://github.com/dedalodaelus/esphome-allpowers-ble
+    ref: devel
+    refresh: 1d
+    files:
+      - path: packages/allpowers_ble.yaml
+        vars:
+          allpowers_id: allpowers
+          allpowers_name: "ALLPOWERS Power Station"
+          allpowers_mac: !secret allpowers_station_mac
+```
+
+Add the MAC to your local `secrets.yaml`:
+
+```yaml
+allpowers_station_mac: "AA:BB:CC:DD:EE:FF"
+```
+
+The public package contains no secret lookups of its own. Passing a local secret through package
+variables keeps the device address outside the repository.
+
+Complete configurations are provided in:
+
+- [`examples/minimal.yaml`](examples/minimal.yaml)
+- [`examples/bluetooth-proxy.yaml`](examples/bluetooth-proxy.yaml)
+- [`examples/local-development.yaml`](examples/local-development.yaml)
+
+## Package variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `allpowers_id` | `allpowers` | Unique ESPHome ID prefix; use letters, numbers and underscores |
+| `allpowers_name` | `ALLPOWERS Power Station` | Home Assistant subdevice name |
+| `allpowers_mac` | placeholder | BLE MAC address |
+| `allpowers_service_uuid` | `FFF0` | Configurable service UUID |
+| `allpowers_stale_timeout` | `30s` | Time before telemetry becomes unknown |
+| `allpowers_connect_at_boot` | `true` | Start persistent searching after boot |
+| `allpowers_bootstrap_delay` | `10s` | Delay before initial BLE search |
+| `allpowers_scan_interval` | `320ms` | ESP32 BLE scan interval |
+| `allpowers_scan_window` | `320ms` | ESP32 BLE scan window |
+| `allpowers_scan_active` | `true` | Active BLE scanning |
+| `allpowers_rssi_update_interval` | `60s` | Optional RSSI update interval |
+
+## Bluetooth Proxy connection slots
+
+If the same ESP32 also acts as a Home Assistant Bluetooth Proxy, reserve one connection slot per
+ALLPOWERS BLE client in addition to the proxy slots:
+
+```yaml
+esp32_ble:
+  max_connections: 4
+
+bluetooth_proxy:
+  active: true
+  connection_slots: 3
+```
+
+## Entities
+
+### Primary
+
+| Entity | Type |
+|---|---|
+| Battery Level | Sensor |
+| Input Power | Sensor |
+| Output Power | Sensor |
+| Estimated Time Remaining | Sensor |
+| AC Output | Switch |
+| DC Output | Switch |
+| Light | Switch |
+| AC Output Status | Binary sensor |
+| DC Output Status | Binary sensor |
+| Light Status | Binary sensor |
+| Battery Charging | Binary sensor |
+| Battery Discharging | Binary sensor |
+
+### Connection and diagnostics
+
+| Entity | Purpose |
+|---|---|
+| Keep BLE Connected | Desired persistent connection state |
+| BLE Connection Status | `Disabled`, `Searching` or `Connected` |
+| BLE Connected | Physical BLE link state |
+| Telemetry Available | A recent valid status frame exists |
+| Controls Available | Output commands can be sent safely |
+| BLE Protocol Error | Short, unknown or failed BLE transaction detected |
+
+When the BLE link is disconnected or telemetry expires, numeric and binary telemetry entities are
+invalidated. Native ESPHome switches cannot individually publish an unavailable state; the component
+blocks their commands instead. Optional Home Assistant wrapper switches are provided in
+[`home_assistant/allpowers_ble_controls.yaml.example`](home_assistant/allpowers_ble_controls.yaml.example).
+
+## Known limitations
+
+The currently verified public protocol information does not provide commands for ECO mode, charging
+mode, charging limits, independent USB control, voltage, current, temperature, internal alarms or
+remaining energy in watt-hours. These fields are deliberately not invented.
+
+AC frequency is experimental and disabled by default. See [`docs/protocol.md`](docs/protocol.md).
+
+## Local validation
+
+```bash
+python -m compileall -q components tests
+ruff check components tests
+ruff format --check components tests
+flake8 components tests
+pylint components/allpowers_ble tests/test_protocol.py
+clang-format --dry-run --Werror \
+  components/allpowers_ble/allpowers_ble.h \
+  components/allpowers_ble/allpowers_ble.cpp
+cpplint \
+  components/allpowers_ble/allpowers_ble.h \
+  components/allpowers_ble/allpowers_ble.cpp
+python tests/test_protocol.py
+esphome config tests/ci.yaml
+esphome compile tests/ci.yaml
+```
+
+Install the pinned lint tools with `pip install -r requirements-lint.txt`. GitHub Actions runs the same
+Python and C++ checks, the protocol regression tests, configuration validation and a complete ESPHome build.
+
+## Reporting compatibility
+
+Include:
+
+- Exact model and hardware revision
+- Firmware version shown by the official application
+- BLE local name
+- Service and characteristic UUIDs
+- ESPHome version
+- ESP32 model and framework
+- Sanitized logs
+- Which readings and controls were physically verified
+
+Never publish Wi-Fi credentials, API encryption keys, OTA passwords or complete Android bug reports.
+
+## Credits and development disclosure
+
+- BLE protocol source and original communication logic:
+  [`madninjaskillz/allpowers-ble`](https://github.com/madninjaskillz/allpowers-ble), MIT licensed.
+- Initial R600 ESPHome port developed with assistance from OpenAI ChatGPT.
+- Generalization and maintenance by [`dedalodaelus`](https://github.com/dedalodaelus).
+- Generated and adapted code must be reviewed and validated against real hardware by maintainers and
+  contributors.
+
+See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+## License
+
+MIT. See [`LICENSE`](LICENSE).

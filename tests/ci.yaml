@@ -1,0 +1,29 @@
+esphome:
+  name: allpowers-ci
+  friendly_name: ALLPOWERS BLE CI
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+
+external_components:
+  # CI must compile the checked-out component rather than a published release.
+  - source:
+      type: local
+      path: ../components
+    components:
+      - allpowers_ble
+
+packages:
+  # Exercise the public package and component together with a non-connecting
+  # placeholder MAC; no physical BLE device is required for compilation.
+  allpowers_station: !include
+    file: ../packages/allpowers_ble.yaml
+    vars:
+      allpowers_id: allpowers
+      allpowers_name: "ALLPOWERS Test Station"
+      allpowers_mac: "AA:BB:CC:DD:EE:FF"
+      allpowers_connect_at_boot: "false"

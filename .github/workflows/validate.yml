@@ -1,0 +1,57 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install linters and ESPHome type sources
+        run: |
+          pip install -r requirements-lint.txt
+          pip install --no-deps "esphome==2026.7.0"
+      - name: Check Python syntax
+        run: python -m compileall -q components tests
+      - name: Ruff lint
+        run: ruff check components tests
+      - name: Ruff format
+        run: ruff format --check components tests
+      - name: Flake8
+        run: flake8 components tests
+      - name: Pylint
+        run: pylint components/allpowers_ble tests/test_protocol.py
+      - name: ClangFormat
+        run: clang-format --dry-run --Werror components/allpowers_ble/allpowers_ble.h components/allpowers_ble/allpowers_ble.cpp
+      - name: CppLint
+        run: cpplint components/allpowers_ble/allpowers_ble.h components/allpowers_ble/allpowers_ble.cpp
+
+  protocol-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run protocol regression tests
+        run: python tests/test_protocol.py
+
+  esphome-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ESPHome
+        run: pip install "esphome==2026.7.0"
+      - name: Validate configuration
+        run: esphome config tests/ci.yaml
+      - name: Compile test firmware
+        run: esphome compile tests/ci.yaml

@@ -1,0 +1,67 @@
+[tool.ruff]
+required-version = ">=0.15.0"
+target-version = "py311"
+exclude = ["generated"]
+
+[tool.ruff.lint]
+select = [
+  "E",
+  "F",
+  "FLY",
+  "FURB",
+  "I",
+  "PERF",
+  "PL",
+  "RET",
+  "SIM",
+  "UP",
+]
+ignore = [
+  "E501",
+  "PLC0415",
+  "PLR0911",
+  "PLR0912",
+  "PLR0913",
+  "PLR0915",
+  "PLR2004",
+  "PLW1641",
+  "PLW2901",
+]
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+known-first-party = ["esphome"]
+combine-as-imports = true
+split-on-trailing-comma = false
+
+[tool.pylint.main]
+py-version = "3.11"
+persistent = false
+
+[tool.pylint.reports]
+score = true
+
+[tool.pylint."messages control"]
+disable = [
+  "duplicate-code",
+  "fixme",
+  "format",
+  "global-statement",
+  "invalid-name",
+  "missing-docstring",
+  "too-few-public-methods",
+  "too-many-ancestors",
+  "too-many-arguments",
+  "too-many-branches",
+  "too-many-instance-attributes",
+  "too-many-lines",
+  "too-many-locals",
+  "too-many-positional-arguments",
+  "too-many-return-statements",
+  "too-many-statements",
+  "unused-argument",
+]
+
+[tool.pylint.format]
+expected-line-ending-format = "LF"
+max-line-length = 120

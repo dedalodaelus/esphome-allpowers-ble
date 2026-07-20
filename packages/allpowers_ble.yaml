@@ -1,0 +1,307 @@
+# Reusable ESPHome package for ALLPOWERS power stations that implement the
+# FFF0/FFF1/FFF2 BLE protocol used by the upstream allpowers-ble project.
+#
+# Compatibility is protocol-based. This package does not imply support for
+# every ALLPOWERS product.
+
+defaults:
+  # Identity and protocol parameters normally changed by users.
+  allpowers_id: allpowers
+  allpowers_name: "ALLPOWERS Power Station"
+  allpowers_mac: "AA:BB:CC:DD:EE:FF"
+  allpowers_service_uuid: "FFF0"
+  allpowers_stale_timeout: 30s
+
+  # Connection policy. The package deliberately controls auto-connect at
+  # runtime so the Home Assistant switch can fully stop discovery/retries.
+  allpowers_connect_at_boot: "true"
+  allpowers_bootstrap_delay: 10s
+
+  # Shared BLE scanner tuning. These values provide continuous scanning and
+  # are compatible with a node that also acts as a Bluetooth Proxy.
+  allpowers_scan_interval: 320ms
+  allpowers_scan_window: 320ms
+  allpowers_scan_active: "true"
+  allpowers_rssi_update_interval: 60s
+
+esphome:
+  min_version: 2026.7.0
+
+  # Expose the power station as a separate logical device in Home Assistant.
+  devices:
+    - id: ${allpowers_id}_device
+      name: "${allpowers_name}"
+
+  on_boot:
+    priority: -100
+    then:
+      # Publish the requested policy immediately; physical connection state is
+      # reported independently by the BLE Connected binary sensor.
+      - lambda: |-
+          id(${allpowers_id}_ble_connection_control).publish_state(
+              id(${allpowers_id}_ble_connection_requested));
+      - text_sensor.template.publish:
+          id: ${allpowers_id}_ble_connection_state
+          state: !lambda |-
+            if (id(${allpowers_id}_ble_connection_requested)) {
+              return std::string("Searching");
+            }
+            return std::string("Disabled");
+
+      - if:
+          condition:
+            lambda: |-
+              return id(${allpowers_id}_ble_connection_requested);
+          then:
+            # Delay BLE connection attempts until the node and scanner have
+            # completed startup. Recheck the requested state after the delay
+            # so an early OFF command is respected.
+            - delay: ${allpowers_bootstrap_delay}
+            - if:
+                condition:
+                  lambda: |-
+                    return id(${allpowers_id}_ble_connection_requested);
+                then:
+                  - logger.log: "Enabling persistent BLE connection to ${allpowers_name}"
+                  - lambda: |-
+                      id(${allpowers_id}_ble_client).set_auto_connect(true);
+                      id(${allpowers_id}_ble_client).set_enabled(true);
+          else:
+            - lambda: |-
+                id(${allpowers_id}_ble_client).set_auto_connect(false);
+                id(${allpowers_id}_ble_client).set_enabled(false);
+
+globals:
+  # Desired connection state, not the current physical BLE link state.
+  # ON: scan/retry continuously and reconnect after link loss.
+  # OFF: disconnect and ignore advertisements for this BLE client.
+  - id: ${allpowers_id}_ble_connection_requested
+    type: bool
+    restore_value: no
+    initial_value: '${allpowers_connect_at_boot}'
+
+esp32_ble_tracker:
+  scan_parameters:
+    interval: ${allpowers_scan_interval}
+    window: ${allpowers_scan_window}
+    active: ${allpowers_scan_active}
+
+ble_client:
+  - id: ${allpowers_id}_ble_client
+    mac_address: ${allpowers_mac}
+    # Kept false in static configuration. The template switch below enables
+    # or disables both the client and auto-connect dynamically.
+    auto_connect: false
+
+    on_connect:
+      then:
+        - logger.log: "${allpowers_name} connected over BLE"
+        - text_sensor.template.publish:
+            id: ${allpowers_id}_ble_connection_state
+            state: "Connected"
+
+    on_disconnect:
+      then:
+        - if:
+            condition:
+              lambda: |-
+                return id(${allpowers_id}_ble_connection_requested);
+            then:
+              - logger.log: "${allpowers_name} disconnected; searching again"
+              - text_sensor.template.publish:
+                  id: ${allpowers_id}_ble_connection_state
+                  state: "Searching"
+            else:
+              - logger.log: "${allpowers_name} disconnected; BLE connection disabled"
+              - text_sensor.template.publish:
+                  id: ${allpowers_id}_ble_connection_state
+                  state: "Disabled"
+
+allpowers_ble:
+  # Protocol parser/controller attached to the generic ESPHome BLE client.
+  - id: ${allpowers_id}
+    ble_client_id: ${allpowers_id}_ble_client
+    service_uuid: ${allpowers_service_uuid}
+    stale_timeout: ${allpowers_stale_timeout}
+
+sensor:
+  # Stable telemetry decoded directly from verified status-frame offsets.
+  - platform: allpowers_ble
+    allpowers_ble_id: ${allpowers_id}
+
+    state_of_charge:
+      id: ${allpowers_id}_state_of_charge
+      name: "Battery Level"
+      device_id: ${allpowers_id}_device
+
+    input_power:
+      id: ${allpowers_id}_input_power
+      name: "Input Power"
+      device_id: ${allpowers_id}_device
+
+    output_power:
+      id: ${allpowers_id}_output_power
+      name: "Output Power"
+      device_id: ${allpowers_id}_device
+
+    remaining_time:
+      id: ${allpowers_id}_remaining_time
+      name: "Estimated Time Remaining"
+      device_id: ${allpowers_id}_device
+
+    ac_frequency:
+      id: ${allpowers_id}_ac_frequency
+      name: "AC Frequency (Experimental)"
+      device_id: ${allpowers_id}_device
+      entity_category: diagnostic
+      disabled_by_default: true
+
+    # Raw protocol diagnostics are useful for reverse engineering and support,
+    # but are hidden by default for normal users.
+    status_byte:
+      id: ${allpowers_id}_status_byte
+      name: "BLE Status Byte"
+      device_id: ${allpowers_id}_device
+      entity_category: diagnostic
+      disabled_by_default: true
+
+    packet_length:
+      id: ${allpowers_id}_packet_length
+      name: "BLE Packet Length"
+      device_id: ${allpowers_id}_device
+      entity_category: diagnostic
+      disabled_by_default: true
+
+  - platform: ble_client
+    type: rssi
+    ble_client_id: ${allpowers_id}_ble_client
+    id: ${allpowers_id}_ble_rssi
+    name: "BLE Signal Strength"
+    device_id: ${allpowers_id}_device
+    entity_category: diagnostic
+    disabled_by_default: true
+    update_interval: ${allpowers_rssi_update_interval}
+
+binary_sensor:
+  - platform: allpowers_ble
+    allpowers_ble_id: ${allpowers_id}
+
+    connected:
+      id: ${allpowers_id}_connected
+      name: "BLE Connected"
+      device_id: ${allpowers_id}_device
+      entity_category: diagnostic
+
+    # These states intentionally describe different readiness levels:
+    # connected -> BLE link open; data_valid -> fresh status received;
+    # controls_available -> a safe combined output command can be written.
+    data_valid:
+      id: ${allpowers_id}_data_valid
+      name: "Telemetry Available"
+      device_id: ${allpowers_id}_device
+      entity_category: diagnostic
+
+    controls_available:
+      id: ${allpowers_id}_controls_available
+      name: "Controls Available"
+      device_id: ${allpowers_id}_device
+      entity_category: diagnostic
+
+    ac_output:
+      id: ${allpowers_id}_ac_output_active
+      name: "AC Output Status"
+      device_id: ${allpowers_id}_device
+
+    dc_output:
+      id: ${allpowers_id}_dc_output_active
+      name: "DC Output Status"
+      device_id: ${allpowers_id}_device
+
+    light:
+      id: ${allpowers_id}_light_active
+      name: "Light Status"
+      device_id: ${allpowers_id}_device
+
+    charging:
+      id: ${allpowers_id}_charging
+      name: "Battery Charging"
+      device_id: ${allpowers_id}_device
+
+    discharging:
+      id: ${allpowers_id}_discharging
+      name: "Battery Discharging"
+      device_id: ${allpowers_id}_device
+
+    protocol_error:
+      id: ${allpowers_id}_protocol_error
+      name: "BLE Protocol Error"
+      device_id: ${allpowers_id}_device
+      disabled_by_default: true
+      entity_category: diagnostic
+
+text_sensor:
+  # Desired-policy summary for humans. It is not a fourth source of truth:
+  # Disabled means retries are disabled, Searching means enabled but not
+  # connected, and Connected is set by the BLE client's on_connect callback.
+  - platform: template
+    id: ${allpowers_id}_ble_connection_state
+    name: "BLE Connection Status"
+    device_id: ${allpowers_id}_device
+    icon: mdi:bluetooth-connect
+    entity_category: diagnostic
+    update_interval: never
+
+switch:
+  # Desired-state control:
+  # ON  -> actively search until connected and reconnect after link loss.
+  # OFF -> disconnect and stop trying to connect to this power station.
+  - platform: template
+    id: ${allpowers_id}_ble_connection_control
+    name: "Keep BLE Connected"
+    device_id: ${allpowers_id}_device
+    icon: mdi:bluetooth-connect
+    entity_category: config
+    optimistic: false
+    restore_mode: DISABLED
+    lambda: |-
+      return id(${allpowers_id}_ble_connection_requested);
+
+    turn_on_action:
+      - logger.log: "Enabling persistent BLE connection to ${allpowers_name}"
+      - text_sensor.template.publish:
+          id: ${allpowers_id}_ble_connection_state
+          state: "Searching"
+      - lambda: |-
+          id(${allpowers_id}_ble_connection_requested) = true;
+          id(${allpowers_id}_ble_client).set_auto_connect(true);
+          id(${allpowers_id}_ble_client).set_enabled(true);
+          id(${allpowers_id}_ble_connection_control).publish_state(true);
+
+    turn_off_action:
+      - logger.log: "Disabling BLE connection to ${allpowers_name}"
+      - text_sensor.template.publish:
+          id: ${allpowers_id}_ble_connection_state
+          state: "Disabled"
+      - lambda: |-
+          id(${allpowers_id}_ble_connection_requested) = false;
+          id(${allpowers_id}_ble_client).set_auto_connect(false);
+          id(${allpowers_id}_ble_client).set_enabled(false);
+          id(${allpowers_id}_ble_connection_control).publish_state(false);
+
+  - platform: allpowers_ble
+    allpowers_ble_id: ${allpowers_id}
+
+    ac_output:
+      id: ${allpowers_id}_ac_output
+      name: "AC Output"
+      device_id: ${allpowers_id}_device
+
+    dc_output:
+      id: ${allpowers_id}_dc_output
+      name: "DC Output"
+      device_id: ${allpowers_id}_device
+
+    light:
+      id: ${allpowers_id}_light
+      name: "Light"
+      device_id: ${allpowers_id}_device
