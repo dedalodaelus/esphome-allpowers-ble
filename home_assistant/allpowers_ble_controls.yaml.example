@@ -5,50 +5,91 @@
 #
 # Replace the entity IDs below with those created in your Home Assistant instance. Hide, but do not
 # disable, the original ESPHome switches because these wrappers call them.
+#
+# For another power station, duplicate this complete template block and change the block-level
+# unique_id, displayed names, default_entity_id values and every referenced source entity ID.
 
 template:
-  - switch:
+  - unique_id: allpowers_default_controls_wrapper
+
+    switch:
       - name: "ALLPOWERS AC Output"
-        unique_id: allpowers_ac_output_available
+        unique_id: ac_output
+        default_entity_id: switch.allpowers_ac_output_available
+        icon: mdi:power-socket-eu
         availability: >-
-          {{ is_state('binary_sensor.allpowers_controls_available', 'on') }}
+          {{
+            is_state('binary_sensor.allpowers_controls_available', 'on')
+            and has_value('binary_sensor.allpowers_ac_output_status')
+            and has_value('switch.allpowers_ac_output')
+          }}
         state: >-
           {{ is_state('binary_sensor.allpowers_ac_output_status', 'on') }}
         turn_on:
+          - condition: state
+            entity_id: binary_sensor.allpowers_controls_available
+            state: "on"
           - action: switch.turn_on
             target:
               entity_id: switch.allpowers_ac_output
         turn_off:
+          - condition: state
+            entity_id: binary_sensor.allpowers_controls_available
+            state: "on"
           - action: switch.turn_off
             target:
               entity_id: switch.allpowers_ac_output
 
       - name: "ALLPOWERS DC Output"
-        unique_id: allpowers_dc_output_available
+        unique_id: dc_output
+        default_entity_id: switch.allpowers_dc_output_available
+        icon: mdi:current-dc
         availability: >-
-          {{ is_state('binary_sensor.allpowers_controls_available', 'on') }}
+          {{
+            is_state('binary_sensor.allpowers_controls_available', 'on')
+            and has_value('binary_sensor.allpowers_dc_output_status')
+            and has_value('switch.allpowers_dc_output')
+          }}
         state: >-
           {{ is_state('binary_sensor.allpowers_dc_output_status', 'on') }}
         turn_on:
+          - condition: state
+            entity_id: binary_sensor.allpowers_controls_available
+            state: "on"
           - action: switch.turn_on
             target:
               entity_id: switch.allpowers_dc_output
         turn_off:
+          - condition: state
+            entity_id: binary_sensor.allpowers_controls_available
+            state: "on"
           - action: switch.turn_off
             target:
               entity_id: switch.allpowers_dc_output
 
       - name: "ALLPOWERS Light"
-        unique_id: allpowers_light_available
+        unique_id: light
+        default_entity_id: switch.allpowers_light_available
+        icon: mdi:flashlight
         availability: >-
-          {{ is_state('binary_sensor.allpowers_controls_available', 'on') }}
+          {{
+            is_state('binary_sensor.allpowers_controls_available', 'on')
+            and has_value('binary_sensor.allpowers_light_status')
+            and has_value('switch.allpowers_light')
+          }}
         state: >-
           {{ is_state('binary_sensor.allpowers_light_status', 'on') }}
         turn_on:
+          - condition: state
+            entity_id: binary_sensor.allpowers_controls_available
+            state: "on"
           - action: switch.turn_on
             target:
               entity_id: switch.allpowers_light
         turn_off:
+          - condition: state
+            entity_id: binary_sensor.allpowers_controls_available
+            state: "on"
           - action: switch.turn_off
             target:
               entity_id: switch.allpowers_light
