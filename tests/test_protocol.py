@@ -8,6 +8,9 @@ SETTINGS_STATUS_COMMAND = 0x03
 SETTINGS_WRITE_COMMAND = 0x02
 ECO_MODE_MASK = 0x01
 ECO_SHUTDOWN_HOURS = (1, 2, 4, 6)
+WORK_MODE_MASK = 0x06
+WORK_MODE_SHIFT = 1
+WORK_MODES = (0, 1, 2)
 
 
 @dataclass(frozen=True)
@@ -31,6 +34,7 @@ class SettingsStatus:
     flags: int
     eco_time: int
     eco_enabled: bool
+    work_mode: int
 
 
 def xor_bytes(data: bytes | bytearray) -> int:
@@ -87,6 +91,7 @@ def parse_settings(packet: bytes) -> SettingsStatus:
         flags=flags,
         eco_time=packet[8],
         eco_enabled=bool(flags & ECO_MODE_MASK),
+        work_mode=(flags & WORK_MODE_MASK) >> WORK_MODE_SHIFT,
     )
 
 
@@ -148,6 +153,15 @@ def make_eco_shutdown_time_frame(*, settings_flags: int, hours: int) -> bytes:
     return make_settings_frame(settings_flags=settings_flags, eco_time=hours)
 
 
+def make_work_mode_frame(*, settings_flags: int, eco_time: int, mode: int) -> bytes:
+    """Change only the two verified work-mode bits."""
+
+    if mode not in WORK_MODES:
+        raise ValueError("unsupported work mode")
+    flags = (settings_flags & ~WORK_MODE_MASK) | (mode << WORK_MODE_SHIFT)
+    return make_settings_frame(settings_flags=flags, eco_time=eco_time)
+
+
 def test_status_parser() -> None:
     """Decode the known command-0x01 field offsets and a valid checksum."""
 
@@ -171,6 +185,7 @@ def test_settings_parser() -> None:
     assert parsed.flags == 0x37
     assert parsed.eco_time == 4
     assert parsed.eco_enabled
+    assert parsed.work_mode == 3
 
 
 def test_invalid_notifications_are_rejected() -> None:
@@ -252,6 +267,35 @@ def test_unsupported_eco_shutdown_time_is_rejected() -> None:
             raise AssertionError(f"unsupported ECO shutdown time accepted: {hours}")
 
 
+def test_work_mode_preserves_other_settings() -> None:
+    """Encode all app modes without changing unrelated settings fields."""
+
+    expected = {
+        0: "A56500B1010202F9048D",
+        1: "A56500B1010202FB048F",
+        2: "A56500B1010202FD0489",
+    }
+    for mode, expected_hex in expected.items():
+        frame = make_work_mode_frame(settings_flags=0xFF, eco_time=4, mode=mode)
+        assert frame.hex().upper() == expected_hex
+        assert (frame[7] & WORK_MODE_MASK) >> WORK_MODE_SHIFT == mode
+        assert frame[7] & ~WORK_MODE_MASK == 0xF9
+        assert frame[8] == 4
+        assert xor_bytes(frame) == 0
+
+
+def test_unsupported_work_mode_is_rejected() -> None:
+    """Reject the reserved two-bit value and values outside the field."""
+
+    for mode in (-1, 3, 4, 255):
+        try:
+            make_work_mode_frame(settings_flags=0x37, eco_time=4, mode=mode)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"unsupported work mode accepted: {mode}")
+
+
 if __name__ == "__main__":
     test_status_parser()
     test_settings_parser()
@@ -260,4 +304,6 @@ if __name__ == "__main__":
     test_eco_write_preserves_unmanaged_settings()
     test_eco_shutdown_time_preserves_settings_bitmap()
     test_unsupported_eco_shutdown_time_is_rejected()
+    test_work_mode_preserves_other_settings()
+    test_unsupported_work_mode_is_rejected()
     print("Protocol tests passed")
