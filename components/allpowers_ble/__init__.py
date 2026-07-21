@@ -14,7 +14,7 @@ from esphome.components import (
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
 
-AUTO_LOAD = ["sensor", "binary_sensor", "switch", "select"]
+AUTO_LOAD = ["sensor", "binary_sensor", "switch", "select", "text_sensor"]
 DEPENDENCIES = ["ble_client"]
 MULTI_CONF = True
 
