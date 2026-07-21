@@ -343,6 +343,14 @@ switch:
       device_id: ${allpowers_id}_device
       icon: mdi:leaf
 
+    # This is the independent 12 V automotive socket reported in the settings
+    # bitmap, not the DC/USB group controlled by the status command.
+    car_charger:
+      id: ${allpowers_id}_car_charger
+      name: "Car Charger"
+      device_id: ${allpowers_id}_device
+      icon: mdi:car-battery
+
     light:
       id: ${allpowers_id}_light
       name: "Light"
