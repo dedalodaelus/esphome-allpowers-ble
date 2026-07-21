@@ -35,7 +35,11 @@ wifi:
 
 external_components:
   # Loads the custom Python/C++ platform from the repository branch below.
-  - source: github://dedalodaelus/esphome-allpowers-ble@main
+  - source:
+      type: git
+      url: https://github.com/dedalodaelus/esphome-allpowers-ble
+      ref: main
+    refresh: 1d
     components:
       - allpowers_ble
 
