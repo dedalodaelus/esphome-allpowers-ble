@@ -268,6 +268,17 @@ text_sensor:
     entity_category: diagnostic
     update_interval: never
 
+select:
+  - platform: allpowers_ble
+    allpowers_ble_id: ${allpowers_id}
+
+    # The station stores this value in the same combined settings frame as ECO
+    # mode. The component preserves every unrelated setting when it changes.
+    eco_shutdown_time:
+      id: ${allpowers_id}_eco_shutdown_time
+      name: "ECO Shutdown Time"
+      device_id: ${allpowers_id}_device
+
 switch:
   # Desired-state control:
   # ON  -> actively search until connected and reconnect after link loss.
