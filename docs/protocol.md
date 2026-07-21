@@ -56,7 +56,7 @@ the upstream implementation. It is not presented as a general checksum algorithm
 
 ## Settings notification: command `0x03`
 
-A complete settings response has at least 14 bytes. The fields needed for ECO are:
+A complete settings response has at least 14 bytes. The fields used by the implemented ECO controls are:
 
 | Offset | Meaning |
 |---|---|
@@ -66,12 +66,13 @@ A complete settings response has at least 14 bytes. The fields needed for ECO ar
 | Byte 7, bit 4 | Car/DC port, preserved but not exposed |
 | Byte 7, bit 5 | Self-use mode, preserved but not exposed |
 | Byte 7, bits 6-7 | Reserved, preserved verbatim |
-| Byte 8 | ECO timeout, preserved but not exposed |
+| Byte 8 | ECO shutdown time in hours: `1`, `2`, `4` or `6` |
 | Bytes 9-10 | Charging-time field, not exposed |
 | Bytes 11-12 | Hardware and software versions, not exposed |
 
-The component stores bytes 7 and 8 as a raw settings snapshot. ECO remains unavailable until this
-snapshot is received and becomes unavailable again when it is stale or BLE disconnects.
+The component stores bytes 7 and 8 as a raw settings snapshot. ECO mode and shutdown-time writes remain
+unavailable until this snapshot is received and become unavailable again when it is stale or BLE
+disconnects. Unknown timeout values are preserved but are not mapped to one of the verified select options.
 
 ## ECO write: command `0x02`
 
@@ -79,13 +80,14 @@ snapshot is received and becomes unavailable again when it is stale or BLE disco
 A5 65 00 B1 01 02 02 SS TT XX
 ```
 
-- `SS` is copied from the latest settings notification with only bit 0 changed.
-- `TT` is the existing ECO timeout copied from that notification.
+- For an ECO mode change, `SS` is copied from the latest settings notification with only bit 0 changed.
+- For a shutdown-time change, `TT` is replaced with `1`, `2`, `4` or `6`; `SS` is copied unchanged.
+- The field not being changed is copied verbatim from the latest settings notification.
 - `XX` is the XOR of bytes 0 through 8.
 
-This read-modify-write rule prevents an ECO toggle from silently changing charging mode, AC mode,
-the car/DC port, self-use mode or reserved bits. The same stored snapshot and frame builder can be
-reused when additional settings are implemented later.
+This read-modify-write rule prevents either ECO control from silently changing charging mode, AC mode,
+the car/DC port, self-use mode or reserved bits. Both controls use the same stored snapshot and frame
+builder, which is the extension point for additional settings implemented later.
 
 ## Experimental field
 
@@ -96,7 +98,6 @@ disabled-by-default diagnostic entity.
 
 The currently verified implementation does not expose:
 
-- ECO timeout selection
 - Charging mode or charging limits
 - Car/DC output as an independent control
 - Self-use mode

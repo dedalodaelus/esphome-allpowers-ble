@@ -12,6 +12,7 @@ for published releases.
 
 - ECO mode state and control using the R600 settings command, gated by a fresh
   command-`0x03` settings snapshot.
+- ECO shutdown-time state and control for the verified 1, 2, 4 and 6 hour values.
 - Separate `Settings Available` readiness and confirmed `ECO Mode Status`
   entities for safe Home Assistant controls.
 

@@ -43,6 +43,7 @@ same status frame format. See [`docs/compatibility.md`](docs/compatibility.md).
 - AC, DC and light control
 - ECO mode state and control on devices that publish the command-`0x03`
   settings notification
+- ECO shutdown time selection: 1, 2, 4 or 6 hours
 - Charging and discharging indicators derived from power flow
 - BLE connection state: `Disabled`, `Searching` or `Connected`
 - Persistent connection control:
@@ -50,8 +51,8 @@ same status frame format. See [`docs/compatibility.md`](docs/compatibility.md).
   - OFF disconnects and stops attempting to connect
 - Telemetry becomes unknown after BLE disconnection or stale data
 - Commands are rejected until the BLE link and telemetry are valid
-- ECO commands are rejected until a fresh complete settings snapshot is
-  available; unrelated settings and the ECO timeout are preserved verbatim
+- ECO mode and shutdown-time commands are rejected until a fresh complete
+  settings snapshot is available; every unrelated setting is preserved verbatim
 - Power-station entities appear as a separate Home Assistant subdevice
 - Optional Bluetooth RSSI and protocol diagnostics
 - Multiple instances are supported when each package instance uses a unique `allpowers_id`; optional Home Assistant wrappers also require unique block IDs and station-specific source entity IDs
@@ -158,6 +159,7 @@ bluetooth_proxy:
 | DC Output | Switch |
 | Light | Switch |
 | ECO Mode | Switch |
+| ECO Shutdown Time | Select |
 | AC Output Status | Binary sensor |
 | DC Output Status | Binary sensor |
 | Light Status | Binary sensor |
@@ -174,12 +176,13 @@ bluetooth_proxy:
 | BLE Connected | Physical BLE link state |
 | Telemetry Available | A recent valid status frame exists |
 | Controls Available | Output commands can be sent safely |
-| Settings Available | A recent settings frame permits safe ECO writes |
+| Settings Available | A recent settings frame permits safe ECO mode and timeout writes |
 | BLE Protocol Error | Malformed notification or failed BLE transaction detected |
 
 When the BLE link is disconnected or telemetry expires, numeric and binary telemetry entities are
-invalidated. Native ESPHome switches cannot individually publish an unavailable state; the component
-blocks their commands instead.
+invalidated. Native ESPHome controls cannot all publish availability independently; `Settings Available`
+gates both ECO writes in firmware, and the component clears the select's confirmed value when its settings
+snapshot expires.
 
 ### Optional Home Assistant unavailable controls
 
@@ -188,7 +191,8 @@ The optional wrapper in
 creates AC, DC, light and ECO controls with explicit Home Assistant availability. AC, DC and light use
 `Controls Available`; ECO uses `Settings Available` because its write must preserve the complete
 settings bitmap and current ECO timeout. The wrapper uses confirmed binary sensors for state and calls
-the original ESPHome switches to execute commands.
+the original ESPHome switches to execute commands. The ECO shutdown-time select is provided directly by
+ESPHome and is protected by the same `Settings Available` firmware gate.
 
 Copy the example to your Home Assistant packages directory, for example:
 
@@ -217,10 +221,10 @@ implemented by the ESPHome component.
 
 ## Known limitations
 
-ECO timeout selection, charging mode, charging limits, the independent car/DC port, self-use mode,
-independent USB control, voltage, current, temperature, internal alarms and remaining energy in
-watt-hours are not exposed. Their settings bits are preserved when ECO is changed rather than being
-invented or reset.
+Charging mode, charging limits, the independent car/DC port, self-use mode, independent USB control,
+voltage, current, temperature, internal alarms and remaining energy in watt-hours are not exposed. Their
+settings bits are preserved when ECO mode or its shutdown time is changed rather than being invented or
+reset.
 
 ECO stays unavailable on devices that do not publish the compatible command-`0x03` settings frame.
 This prevents the generic package from assuming that every station with the ALLPOWERS brand uses the
