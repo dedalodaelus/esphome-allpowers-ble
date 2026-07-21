@@ -7,6 +7,7 @@ STATUS_COMMAND = 0x01
 SETTINGS_STATUS_COMMAND = 0x03
 SETTINGS_WRITE_COMMAND = 0x02
 ECO_MODE_MASK = 0x01
+ECO_SHUTDOWN_HOURS = (1, 2, 4, 6)
 
 
 @dataclass(frozen=True)
@@ -106,21 +107,45 @@ def make_control_frame(*, dc_on: bool, ac_on: bool, light_on: bool) -> bytes:
     return bytes((0xA5, 0x65, 0x00, 0xB1, 0x01, 0x01, 0x00, flags, checksum))
 
 
-def make_settings_frame(
+def make_settings_frame(*, settings_flags: int, eco_time: int) -> bytes:
+    """Build the shared command-0x02 frame from an updated raw snapshot."""
+
+    frame = bytearray(
+        (
+            0xA5,
+            0x65,
+            0x00,
+            0xB1,
+            0x01,
+            0x02,
+            SETTINGS_WRITE_COMMAND,
+            settings_flags,
+            eco_time,
+        )
+    )
+    frame.append(xor_bytes(frame))
+    return bytes(frame)
+
+
+def make_eco_mode_frame(
     *, settings_flags: int, eco_time: int, eco_enabled: bool
 ) -> bytes:
-    """Change only ECO while preserving every other settings field."""
+    """Change only the ECO bit while preserving the rest of the snapshot."""
 
     flags = (
         settings_flags | ECO_MODE_MASK
         if eco_enabled
         else settings_flags & ~ECO_MODE_MASK
     )
-    frame = bytearray(
-        (0xA5, 0x65, 0x00, 0xB1, 0x01, 0x02, SETTINGS_WRITE_COMMAND, flags, eco_time)
-    )
-    frame.append(xor_bytes(frame))
-    return bytes(frame)
+    return make_settings_frame(settings_flags=flags, eco_time=eco_time)
+
+
+def make_eco_shutdown_time_frame(*, settings_flags: int, hours: int) -> bytes:
+    """Change only the verified ECO timeout byte."""
+
+    if hours not in ECO_SHUTDOWN_HOURS:
+        raise ValueError("unsupported ECO shutdown time")
+    return make_settings_frame(settings_flags=settings_flags, eco_time=hours)
 
 
 def test_status_parser() -> None:
@@ -187,8 +212,8 @@ def test_all_control_combinations() -> None:
 def test_eco_write_preserves_unmanaged_settings() -> None:
     """Toggle bit 0 without changing mode bits, reserved bits or ECO time."""
 
-    enabled = make_settings_frame(settings_flags=0x36, eco_time=4, eco_enabled=True)
-    disabled = make_settings_frame(settings_flags=0x37, eco_time=4, eco_enabled=False)
+    enabled = make_eco_mode_frame(settings_flags=0x36, eco_time=4, eco_enabled=True)
+    disabled = make_eco_mode_frame(settings_flags=0x37, eco_time=4, eco_enabled=False)
 
     assert enabled.hex().upper() == "A56500B1010202370443"
     assert disabled.hex().upper() == "A56500B1010202360442"
@@ -198,10 +223,41 @@ def test_eco_write_preserves_unmanaged_settings() -> None:
     assert xor_bytes(enabled) == xor_bytes(disabled) == 0
 
 
+def test_eco_shutdown_time_preserves_settings_bitmap() -> None:
+    """Encode every verified timeout without changing any settings bit."""
+
+    expected = {
+        1: "A56500B1010202370146",
+        2: "A56500B1010202370245",
+        4: "A56500B1010202370443",
+        6: "A56500B1010202370641",
+    }
+    for hours, expected_hex in expected.items():
+        frame = make_eco_shutdown_time_frame(settings_flags=0x37, hours=hours)
+        assert frame.hex().upper() == expected_hex
+        assert frame[7] == 0x37
+        assert frame[8] == hours
+        assert xor_bytes(frame) == 0
+
+
+def test_unsupported_eco_shutdown_time_is_rejected() -> None:
+    """Do not invent protocol values outside the four options in the app."""
+
+    for hours in (0, 3, 5, 7, 255):
+        try:
+            make_eco_shutdown_time_frame(settings_flags=0x37, hours=hours)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"unsupported ECO shutdown time accepted: {hours}")
+
+
 if __name__ == "__main__":
     test_status_parser()
     test_settings_parser()
     test_invalid_notifications_are_rejected()
     test_all_control_combinations()
     test_eco_write_preserves_unmanaged_settings()
+    test_eco_shutdown_time_preserves_settings_bitmap()
+    test_unsupported_eco_shutdown_time_is_rejected()
     print("Protocol tests passed")
