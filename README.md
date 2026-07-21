@@ -78,14 +78,14 @@ home_assistant/              Optional unavailable-state wrapper switches
 
 ```yaml
 external_components:
-  - source: github://dedalodaelus/esphome-allpowers-ble@main
+  - source: github://dedalodaelus/esphome-allpowers-ble@0.1.0
     components:
       - allpowers_ble
 
 packages:
   allpowers_station:
     url: https://github.com/dedalodaelus/esphome-allpowers-ble
-    ref: main
+    ref: 0.1.0
     refresh: 1d
     files:
       - path: packages/allpowers_ble.yaml
