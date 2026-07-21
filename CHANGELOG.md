@@ -36,6 +36,8 @@ for published releases.
   reject values not exposed by the official R600 application.
 - Preserve ECO, car/DC, AC mode, self-use, reserved bits and timeout when
   changing work mode; reject the reserved two-bit value.
+- Disable the experimental car charger/12 V automotive socket entity by default
+  until reliable control has been confirmed on hardware.
 
 ## [0.1.0] - 2026/07/20
 

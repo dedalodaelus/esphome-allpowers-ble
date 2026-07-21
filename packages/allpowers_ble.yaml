@@ -350,6 +350,7 @@ switch:
       name: "Car Charger"
       device_id: ${allpowers_id}_device
       icon: mdi:car-battery
+      disabled_by_default: true
 
     light:
       id: ${allpowers_id}_light
