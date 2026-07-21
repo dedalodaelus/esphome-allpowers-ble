@@ -1,13 +1,18 @@
-#!/usr/bin/env python3
-"""Protocol regression tests derived from madninjaskillz/allpowers-ble."""
-
-from __future__ import annotations
+"""Protocol regression tests that do not require ESPHome or BLE hardware."""
 
 from dataclasses import dataclass
+
+FRAME_MIN_LENGTH = 8
+STATUS_COMMAND = 0x01
+SETTINGS_STATUS_COMMAND = 0x03
+SETTINGS_WRITE_COMMAND = 0x02
+ECO_MODE_MASK = 0x01
 
 
 @dataclass(frozen=True)
 class Status:
+    """Fields exposed from a command-0x01 status notification."""
+
     dc_on: bool
     ac_on: bool
     light_on: bool
@@ -18,48 +23,110 @@ class Status:
     remaining_min: int
 
 
-def parse_status(data: bytes) -> Status:
-    """Decode only the status fields verified by the upstream implementation."""
+@dataclass(frozen=True)
+class SettingsStatus:
+    """Raw settings snapshot required for safe read-modify-write commands."""
 
-    if len(data) < 15:
-        raise ValueError("status packet must contain at least 15 bytes")
-    if data[:2] != b"\xa5\x65":
-        raise ValueError("unknown frame header")
+    flags: int
+    eco_time: int
+    eco_enabled: bool
 
-    status = data[7]
+
+def xor_bytes(data: bytes | bytearray) -> int:
+    """Return the XOR of all bytes in *data*."""
+
+    checksum = 0
+    for value in data:
+        checksum ^= value
+    return checksum
+
+
+def validate_notification(packet: bytes) -> None:
+    """Validate the envelope used by notifications from the official app."""
+
+    if len(packet) < FRAME_MIN_LENGTH:
+        raise ValueError("short packet")
+    if packet[0:2] != b"\xa5\x65":
+        raise ValueError("unknown header")
+    if len(packet) != FRAME_MIN_LENGTH + packet[5]:
+        raise ValueError("inconsistent payload length")
+    if xor_bytes(packet) != 0:
+        raise ValueError("invalid XOR checksum")
+
+
+def parse_status(packet: bytes) -> Status:
+    """Parse a command-0x01 telemetry notification."""
+
+    validate_notification(packet)
+    if packet[6] != STATUS_COMMAND or len(packet) < 16:
+        raise ValueError("not a complete status packet")
+
+    status = packet[7]
     return Status(
-        dc_on=bool(status & (1 << 0)),
-        ac_on=bool(status & (1 << 1)),
-        light_on=bool(status & (1 << 4)),
-        frequency_hz_experimental=60 if status & (1 << 2) else 50,
-        soc_percent=data[8],
-        input_w=int.from_bytes(data[9:11], "big"),
-        output_w=int.from_bytes(data[11:13], "big"),
-        remaining_min=int.from_bytes(data[13:15], "big"),
+        dc_on=bool(status & 0x01),
+        ac_on=bool(status & 0x02),
+        light_on=bool(status & 0x10),
+        frequency_hz_experimental=60 if status & 0x04 else 50,
+        soc_percent=packet[8],
+        input_w=int.from_bytes(packet[9:11], "big"),
+        output_w=int.from_bytes(packet[11:13], "big"),
+        remaining_min=int.from_bytes(packet[13:15], "big"),
+    )
+
+
+def parse_settings(packet: bytes) -> SettingsStatus:
+    """Parse a command-0x03 settings notification."""
+
+    validate_notification(packet)
+    if packet[6] != SETTINGS_STATUS_COMMAND or len(packet) < 14:
+        raise ValueError("not a complete settings packet")
+
+    flags = packet[7]
+    return SettingsStatus(
+        flags=flags,
+        eco_time=packet[8],
+        eco_enabled=bool(flags & ECO_MODE_MASK),
     )
 
 
 def make_control_frame(*, dc_on: bool, ac_on: bool, light_on: bool) -> bytes:
-    """Reproduce the upstream combined-output command for regression testing."""
+    """Reproduce the existing upstream AC/DC/light command."""
 
-    status = 0
+    flags = 0
     if dc_on:
-        status |= 1 << 0
+        flags |= 0x01
     if ac_on:
-        status |= 1 << 1
+        flags |= 0x02
     if light_on:
-        # Commands use bit 5 for the light, while notifications report it on
-        # bit 4. Keeping this asymmetry in the test protects against an easy
-        # but incompatible "cleanup" of the production implementation.
-        status |= 1 << 5
+        flags |= 0x20
 
-    check = (113 - status + (4 if ac_on else 0)) & 0xFF
-    return bytes((0xA5, 0x65, 0x00, 0xB1, 0x01, 0x01, 0x00, status, check))
+    checksum = 113 - flags
+    if ac_on:
+        checksum += 4
+    return bytes((0xA5, 0x65, 0x00, 0xB1, 0x01, 0x01, 0x00, flags, checksum))
+
+
+def make_settings_frame(
+    *, settings_flags: int, eco_time: int, eco_enabled: bool
+) -> bytes:
+    """Change only ECO while preserving every other settings field."""
+
+    flags = (
+        settings_flags | ECO_MODE_MASK
+        if eco_enabled
+        else settings_flags & ~ECO_MODE_MASK
+    )
+    frame = bytearray(
+        (0xA5, 0x65, 0x00, 0xB1, 0x01, 0x02, SETTINGS_WRITE_COMMAND, flags, eco_time)
+    )
+    frame.append(xor_bytes(frame))
+    return bytes(frame)
 
 
 def test_status_parser() -> None:
-    # 16-byte example matching the offsets implemented upstream.
-    packet = bytes.fromhex("A5 65 B1 00 01 08 01 13 64 01 2C 00 FA 00 78 00")
+    """Decode the known command-0x01 field offsets and a valid checksum."""
+
+    packet = bytes.fromhex("A5 65 B1 00 01 08 01 13 64 01 2C 00 FA 00 78 A1")
     parsed = parse_status(packet)
     assert parsed.dc_on
     assert parsed.ac_on
@@ -71,10 +138,28 @@ def test_status_parser() -> None:
     assert parsed.remaining_min == 120
 
 
-def test_short_and_unknown_frames_are_rejected() -> None:
-    for packet in (b"", b"\xa5\x65" + bytes(12), b"\x00\x65" + bytes(13)):
+def test_settings_parser() -> None:
+    """Retain the complete bitmap while exposing the ECO bit."""
+
+    packet = bytes.fromhex("A5 65 B1 00 01 06 03 37 04 00 5A 12 34 3A")
+    parsed = parse_settings(packet)
+    assert parsed.flags == 0x37
+    assert parsed.eco_time == 4
+    assert parsed.eco_enabled
+
+
+def test_invalid_notifications_are_rejected() -> None:
+    """Reject malformed envelopes before reading command-specific offsets."""
+
+    packets = (
+        b"",
+        b"\xa5\x65" + bytes(12),
+        b"\x00\x65" + bytes(14),
+        bytes.fromhex("A5 65 B1 00 01 08 01 13 64 01 2C 00 FA 00 78 00"),
+    )
+    for packet in packets:
         try:
-            parse_status(packet)
+            validate_notification(packet)
         except ValueError:
             pass
         else:
@@ -82,6 +167,8 @@ def test_short_and_unknown_frames_are_rejected() -> None:
 
 
 def test_all_control_combinations() -> None:
+    """Keep the existing AC/DC/light command stable."""
+
     expected = {
         (False, False, False): "A56500B10101000071",
         (True, False, False): "A56500B10101000170",
@@ -97,8 +184,24 @@ def test_all_control_combinations() -> None:
         assert actual.hex().upper() == expected_hex
 
 
+def test_eco_write_preserves_unmanaged_settings() -> None:
+    """Toggle bit 0 without changing mode bits, reserved bits or ECO time."""
+
+    enabled = make_settings_frame(settings_flags=0x36, eco_time=4, eco_enabled=True)
+    disabled = make_settings_frame(settings_flags=0x37, eco_time=4, eco_enabled=False)
+
+    assert enabled.hex().upper() == "A56500B1010202370443"
+    assert disabled.hex().upper() == "A56500B1010202360442"
+    assert enabled[7] & ~ECO_MODE_MASK == 0x36
+    assert disabled[7] & ~ECO_MODE_MASK == 0x36
+    assert enabled[8] == disabled[8] == 4
+    assert xor_bytes(enabled) == xor_bytes(disabled) == 0
+
+
 if __name__ == "__main__":
     test_status_parser()
-    test_short_and_unknown_frames_are_rejected()
+    test_settings_parser()
+    test_invalid_notifications_are_rejected()
     test_all_control_combinations()
+    test_eco_write_preserves_unmanaged_settings()
     print("Protocol tests passed")
