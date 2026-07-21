@@ -21,6 +21,7 @@
 namespace esphome::allpowers_ble {
 
 static const char *const TAG = "allpowers_ble";
+static constexpr std::array<uint8_t, 4> ECO_SHUTDOWN_HOURS{{1, 2, 4, 6}};
 
 void AllpowersBLE::setup() {
   if (this->connected_binary_sensor_ != nullptr)
@@ -330,15 +331,15 @@ void AllpowersBLE::process_settings_notification_(const uint8_t *data, uint16_t 
   }
 
   // Command 0x03 reports the complete settings bitmap and ECO timeout. Store
-  // both raw fields: changing ECO must preserve charging mode, AC mode, car
-  // port, self-use and any reserved bits not exposed by this component.
+  // both raw fields so each supported setting can be changed without resetting
+  // charging mode, AC mode, car port, self-use or reserved bits.
   this->settings_flags_ = data[SETTINGS_FLAGS_OFFSET];
   this->eco_time_ = data[SETTINGS_ECO_TIME_OFFSET];
   this->have_settings_ = true;
   this->settings_fresh_ = true;
   this->last_settings_packet_ms_ = millis();
 
-  this->publish_eco_state_();
+  this->publish_settings_states_();
   this->publish_settings_available_(this->settings_available_());
   this->set_protocol_error_(false);
 
@@ -355,12 +356,14 @@ void AllpowersBLE::publish_switch_states_() {
     this->light_switch_->publish_state(this->light_on_);
 }
 
-void AllpowersBLE::publish_eco_state_() {
+void AllpowersBLE::publish_settings_states_() {
   const bool eco_enabled = (this->settings_flags_ & SETTINGS_ECO_MASK) != 0;
   if (this->eco_mode_binary_sensor_ != nullptr)
     this->eco_mode_binary_sensor_->publish_state(eco_enabled);
   if (this->eco_switch_ != nullptr)
     this->eco_switch_->publish_state(eco_enabled);
+  if (this->eco_shutdown_time_select_ != nullptr)
+    this->eco_shutdown_time_select_->publish_hours(this->eco_time_);
 }
 
 bool AllpowersBLE::controls_available_() const {
@@ -427,7 +430,7 @@ bool AllpowersBLE::request_eco_mode(bool state) {
   const bool current_state = (this->settings_flags_ & SETTINGS_ECO_MASK) != 0;
   if (current_state == state) {
     // Avoid a redundant write and the confirmation beep produced by the station.
-    this->publish_eco_state_();
+    this->publish_settings_states_();
     return true;
   }
 
@@ -441,12 +444,49 @@ bool AllpowersBLE::request_eco_mode(bool state) {
   if (this->send_settings_frame_()) {
     // Optimistic state is useful for immediate UI feedback. The next command
     // 0x03 notification remains authoritative and can correct it.
-    this->publish_eco_state_();
+    this->publish_settings_states_();
     return true;
   }
 
   this->settings_flags_ = old_flags;
-  this->publish_eco_state_();
+  this->publish_settings_states_();
+  return false;
+}
+
+bool AllpowersBLE::request_eco_shutdown_time(uint8_t hours) {
+  if (std::find(ECO_SHUTDOWN_HOURS.begin(), ECO_SHUTDOWN_HOURS.end(), hours) == ECO_SHUTDOWN_HOURS.end()) {
+    ESP_LOGE(TAG, "Ignoring unsupported ECO shutdown time: %u hours", static_cast<unsigned>(hours));
+    return false;
+  }
+
+  // Byte 8 shares the same command with every settings flag. Reuse the fresh
+  // snapshot gate so changing the timeout cannot reset settings that are not
+  // yet exposed by this component.
+  if (!this->settings_available_()) {
+    ESP_LOGW(TAG, "Ignoring ECO shutdown time command: ALLPOWERS settings are unavailable until a settings frame is "
+                  "received");
+    return false;
+  }
+
+  if (this->eco_time_ == hours) {
+    // Avoid a redundant command because accepted settings writes produce an
+    // audible confirmation on the R600.
+    this->publish_settings_states_();
+    return true;
+  }
+
+  const uint8_t old_eco_time = this->eco_time_;
+  this->eco_time_ = hours;
+
+  if (this->send_settings_frame_()) {
+    // The optimistic value is replaced by the next command-0x03 report, which
+    // remains authoritative if the station rejects or normalizes the request.
+    this->publish_settings_states_();
+    return true;
+  }
+
+  this->eco_time_ = old_eco_time;
+  this->publish_settings_states_();
   return false;
 }
 
@@ -471,8 +511,8 @@ bool AllpowersBLE::send_control_frame_() {
 }
 
 bool AllpowersBLE::send_settings_frame_() {
-  // Command 0x02 writes the settings bitmap. Byte 8 is the existing ECO
-  // timeout; retaining it is as important as preserving the unrelated bits.
+  // Command 0x02 always carries the settings bitmap and ECO timeout together.
+  // Callers update one field in the shared snapshot before using this builder.
   std::array<uint8_t, 10> frame{
       {0xA5, 0x65, 0x00, 0xB1, 0x01, 0x02, 0x02, this->settings_flags_, this->eco_time_, 0x00}};
   uint8_t checksum = 0;
@@ -546,11 +586,13 @@ void AllpowersBLE::invalidate_data_entities_() {
 }
 
 void AllpowersBLE::invalidate_settings_entities_() {
-  // ESPHome switches cannot publish unavailable. The confirmed binary sensor
-  // is invalidated and Settings Available gates both firmware writes and the
-  // optional Home Assistant wrapper.
+  // Settings Available is the authoritative availability signal for native
+  // controls. Clear confirmed state as well so a reconnect cannot present a
+  // previous timeout as the current device setting.
   if (this->eco_mode_binary_sensor_ != nullptr)
     this->eco_mode_binary_sensor_->invalidate_state();
+  if (this->eco_shutdown_time_select_ != nullptr)
+    this->eco_shutdown_time_select_->clear_state();
 }
 
 void AllpowersBLE::publish_controls_available_(bool state) {
@@ -582,6 +624,29 @@ void AllpowersBLEEcoSwitch::write_state(bool state) {
     return;
   }
   this->parent_->request_eco_mode(state);
+}
+
+void AllpowersBLEEcoShutdownTimeSelect::publish_hours(uint8_t hours) {
+  const auto option = std::find(ECO_SHUTDOWN_HOURS.begin(), ECO_SHUTDOWN_HOURS.end(), hours);
+  if (option == ECO_SHUTDOWN_HOURS.end()) {
+    // Preserve unknown protocol values in the parent snapshot, but do not
+    // claim that one of the four verified UI options is active.
+    this->clear_state();
+    return;
+  }
+  this->publish_state(static_cast<size_t>(option - ECO_SHUTDOWN_HOURS.begin()));
+}
+
+void AllpowersBLEEcoShutdownTimeSelect::control(size_t index) {
+  if (this->parent_ == nullptr) {
+    ESP_LOGE(TAG, "ALLPOWERS ECO shutdown time select has no parent component");
+    return;
+  }
+  if (index >= ECO_SHUTDOWN_HOURS.size()) {
+    ESP_LOGE(TAG, "Invalid ECO shutdown time option index: %u", static_cast<unsigned>(index));
+    return;
+  }
+  this->parent_->request_eco_shutdown_time(ECO_SHUTDOWN_HOURS[index]);
 }
 
 }  // namespace esphome::allpowers_ble

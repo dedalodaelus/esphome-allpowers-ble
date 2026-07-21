@@ -13,6 +13,7 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/ble_client/ble_client.h"
 #include "esphome/components/esp32_ble_tracker/esp32_ble_tracker.h"
+#include "esphome/components/select/select.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
 #include "esphome/core/component.h"
@@ -28,6 +29,7 @@ enum class OutputType : uint8_t { AC = 0, DC = 1, LIGHT = 2 };
 
 class AllpowersBLESwitch;
 class AllpowersBLEEcoSwitch;
+class AllpowersBLEEcoShutdownTimeSelect;
 
 class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
  public:
@@ -72,9 +74,13 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   void set_dc_switch(AllpowersBLESwitch *sw) { this->dc_switch_ = sw; }
   void set_light_switch(AllpowersBLESwitch *sw) { this->light_switch_ = sw; }
   void set_eco_switch(AllpowersBLEEcoSwitch *sw) { this->eco_switch_ = sw; }
+  void set_eco_shutdown_time_select(AllpowersBLEEcoShutdownTimeSelect *select) {
+    this->eco_shutdown_time_select_ = select;
+  }
 
   bool request_output(OutputType output, bool state);
   bool request_eco_mode(bool state);
+  bool request_eco_shutdown_time(uint8_t hours);
 
  protected:
   static constexpr uint16_t NOTIFY_UUID = 0xFFF1;
@@ -98,9 +104,9 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   static constexpr size_t REMAINING_TIME_OFFSET = 13;
 
   // The settings notification and write command share the settings bitmap and
-  // ECO timeout fields. Only ECO is exposed today; retaining the complete raw
-  // values allows future controls to be added without changing the safety
-  // invariant or overwriting fields this component does not manage yet.
+  // ECO timeout fields. Retaining both raw values lets each exposed setting
+  // use one read-modify-write path without overwriting fields that remain
+  // intentionally unmanaged.
   static constexpr size_t SETTINGS_FLAGS_OFFSET = 7;
   static constexpr size_t SETTINGS_ECO_TIME_OFFSET = 8;
   static constexpr uint8_t SETTINGS_ECO_MASK = 1U << 0U;
@@ -124,7 +130,7 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   bool controls_available_() const;
   bool settings_available_() const;
   void publish_switch_states_();
-  void publish_eco_state_();
+  void publish_settings_states_();
   void invalidate_data_entities_();
   void invalidate_settings_entities_();
   void publish_controls_available_(bool state);
@@ -147,7 +153,8 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   bool light_on_{false};
 
   // Settings writes are read-modify-write operations. A fresh command-0x03
-  // notification must establish these raw values before ECO can be changed.
+  // notification must establish these raw values before ECO mode or its
+  // shutdown time can be changed.
   bool have_settings_{false};
   bool settings_fresh_{false};
   uint8_t settings_flags_{0};
@@ -181,6 +188,7 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   AllpowersBLESwitch *dc_switch_{nullptr};
   AllpowersBLESwitch *light_switch_{nullptr};
   AllpowersBLEEcoSwitch *eco_switch_{nullptr};
+  AllpowersBLEEcoShutdownTimeSelect *eco_shutdown_time_select_{nullptr};
 };
 
 class AllpowersBLESwitch final : public switch_::Switch {
@@ -201,6 +209,18 @@ class AllpowersBLEEcoSwitch final : public switch_::Switch {
 
  protected:
   void write_state(bool state) override;
+
+  AllpowersBLE *parent_{nullptr};
+};
+
+class AllpowersBLEEcoShutdownTimeSelect final : public select::Select {
+ public:
+  void set_parent(AllpowersBLE *parent) { this->parent_ = parent; }
+  void publish_hours(uint8_t hours);
+  void clear_state() { this->set_has_state(false); }
+
+ protected:
+  void control(size_t index) override;
 
   AllpowersBLE *parent_{nullptr};
 };
