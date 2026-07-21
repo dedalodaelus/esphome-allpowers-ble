@@ -16,6 +16,7 @@ for published releases.
 - Work mode state and control for Mute, Standard and Fast modes.
 - Independent car charger/12 V automotive socket state and control using the
   verified settings bitmap.
+- Power-station hardware and firmware version diagnostics from command `0x03`.
 - Separate `Settings Available` readiness and confirmed `ECO Mode Status`
   entities for safe Home Assistant controls.
 

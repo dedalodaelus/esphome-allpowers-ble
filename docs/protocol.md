@@ -68,12 +68,18 @@ A complete settings response has at least 14 bytes. The implemented settings con
 | Byte 7, bits 6-7 | Reserved, preserved verbatim |
 | Byte 8 | ECO shutdown time in hours: `1`, `2`, `4` or `6` |
 | Bytes 9-10 | Charging-time field, not exposed |
-| Bytes 11-12 | Hardware and software versions, not exposed |
+| Byte 11 | Hardware version |
+| Byte 12 | Firmware/software version |
 
 The component stores bytes 7 and 8 as a raw settings snapshot. ECO mode, shutdown-time, work-mode and
 car-charger writes remain unavailable until this snapshot is received and become unavailable again when it
 is stale or BLE disconnects. Unknown timeout values and the reserved work-mode value are preserved but are not mapped to
 verified select options.
+
+The official application interprets bytes 11 and 12 by converting each byte to hexadecimal text and treating
+that text as a decimal version divided by ten. The component presents valid decimal nibbles as `major.minor`
+(for example, `0x12` becomes `1.2`). A byte containing hexadecimal digits `A` through `F` is exposed as raw
+`0xNN` data rather than being converted to a misleading version.
 
 ## Settings write: command `0x02`
 

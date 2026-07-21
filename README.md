@@ -45,6 +45,7 @@ same status frame format. See [`docs/compatibility.md`](docs/compatibility.md).
   settings notification
 - ECO shutdown time selection: 1, 2, 4 or 6 hours
 - Work mode selection: Mute, Standard or Fast
+- Power-station hardware and firmware version diagnostics
 - Independent car charger/12 V automotive socket state and control,
   disabled by default while hardware support is validated
 - Charging and discharging indicators derived from power flow
