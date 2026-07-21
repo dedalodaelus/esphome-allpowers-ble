@@ -9,6 +9,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/ble_client/ble_client.h"
@@ -16,6 +17,7 @@
 #include "esphome/components/select/select.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
+#include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/core/component.h"
 
 #ifdef USE_ESP32
@@ -53,6 +55,13 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   void set_ac_frequency_sensor(sensor::Sensor *sensor) { this->ac_frequency_sensor_ = sensor; }
   void set_status_byte_sensor(sensor::Sensor *sensor) { this->status_byte_sensor_ = sensor; }
   void set_packet_length_sensor(sensor::Sensor *sensor) { this->packet_length_sensor_ = sensor; }
+
+  void set_hardware_version_text_sensor(text_sensor::TextSensor *sensor) {
+    this->hardware_version_text_sensor_ = sensor;
+  }
+  void set_firmware_version_text_sensor(text_sensor::TextSensor *sensor) {
+    this->firmware_version_text_sensor_ = sensor;
+  }
 
   void set_connected_binary_sensor(binary_sensor::BinarySensor *sensor) { this->connected_binary_sensor_ = sensor; }
   void set_data_valid_binary_sensor(binary_sensor::BinarySensor *sensor) { this->data_valid_binary_sensor_ = sensor; }
@@ -115,6 +124,8 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   // intentionally unmanaged.
   static constexpr size_t SETTINGS_FLAGS_OFFSET = 7;
   static constexpr size_t SETTINGS_ECO_TIME_OFFSET = 8;
+  static constexpr size_t SETTINGS_HARDWARE_VERSION_OFFSET = 11;
+  static constexpr size_t SETTINGS_FIRMWARE_VERSION_OFFSET = 12;
   static constexpr uint8_t SETTINGS_ECO_MASK = 1U << 0U;
   static constexpr uint8_t SETTINGS_WORK_MODE_MASK = 0x06U;
   static constexpr uint8_t SETTINGS_WORK_MODE_SHIFT = 1U;
@@ -129,6 +140,7 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   static constexpr uint8_t CONTROL_AC_MASK = 1U << 1U;
   static constexpr uint8_t CONTROL_LIGHT_MASK = 1U << 5U;
 
+  static std::string format_version_(uint8_t encoded_version);
   bool validate_notification_(const uint8_t *data, uint16_t length) const;
   void process_notification_(const uint8_t *data, uint16_t length);
   void process_status_notification_(const uint8_t *data, uint16_t length);
@@ -180,6 +192,9 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   sensor::Sensor *ac_frequency_sensor_{nullptr};
   sensor::Sensor *status_byte_sensor_{nullptr};
   sensor::Sensor *packet_length_sensor_{nullptr};
+
+  text_sensor::TextSensor *hardware_version_text_sensor_{nullptr};
+  text_sensor::TextSensor *firmware_version_text_sensor_{nullptr};
 
   binary_sensor::BinarySensor *connected_binary_sensor_{nullptr};
   binary_sensor::BinarySensor *data_valid_binary_sensor_{nullptr};

@@ -10,6 +10,7 @@
 #include <array>
 #include <inttypes.h>
 #include <limits>
+#include <string>
 
 #include <esp_err.h>
 
@@ -201,6 +202,20 @@ void AllpowersBLE::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
   }
 }
 
+std::string AllpowersBLE::format_version_(uint8_t encoded_version) {
+  const uint8_t major = encoded_version >> 4U;
+  const uint8_t minor = encoded_version & 0x0FU;
+
+  // The official application converts the byte to hexadecimal text and then
+  // divides that text as a decimal number by ten. For bytes whose nibbles are
+  // decimal digits, that is equivalent to a packed major.minor version. Keep
+  // unexpected values observable instead of manufacturing a misleading number.
+  if (major > 9U || minor > 9U)
+    return str_sprintf("0x%02X", encoded_version);
+
+  return str_sprintf("%u.%u", major, minor);
+}
+
 bool AllpowersBLE::validate_notification_(const uint8_t *data, uint16_t length) const {
   if (length < MIN_FRAME_LENGTH) {
     ESP_LOGW(TAG, "Ignoring short notification: expected at least %u bytes, received %u",
@@ -336,18 +351,27 @@ void AllpowersBLE::process_settings_notification_(const uint8_t *data, uint16_t 
   // AC mode, self-use or reserved bits.
   this->settings_flags_ = data[SETTINGS_FLAGS_OFFSET];
   this->eco_time_ = data[SETTINGS_ECO_TIME_OFFSET];
+  const std::string hardware_version = format_version_(data[SETTINGS_HARDWARE_VERSION_OFFSET]);
+  const std::string firmware_version = format_version_(data[SETTINGS_FIRMWARE_VERSION_OFFSET]);
   this->have_settings_ = true;
   this->settings_fresh_ = true;
   this->last_settings_packet_ms_ = millis();
 
   this->publish_settings_states_();
+  if (this->hardware_version_text_sensor_ != nullptr)
+    this->hardware_version_text_sensor_->publish_state(hardware_version);
+  if (this->firmware_version_text_sensor_ != nullptr)
+    this->firmware_version_text_sensor_->publish_state(firmware_version);
   this->publish_settings_available_(this->settings_available_());
   this->set_protocol_error_(false);
 
-  ESP_LOGD(TAG, "Settings: flags=0x%02X, ECO=%s, ECO timeout=%u, work mode=%u, car charger=%s", this->settings_flags_,
-           (this->settings_flags_ & SETTINGS_ECO_MASK) != 0 ? "ON" : "OFF", this->eco_time_,
+  ESP_LOGD(TAG,
+           "Settings: flags=0x%02X, ECO=%s, ECO timeout=%u, work mode=%u, car charger=%s, hardware=%s, "
+           "firmware=%s",
+           this->settings_flags_, (this->settings_flags_ & SETTINGS_ECO_MASK) != 0 ? "ON" : "OFF", this->eco_time_,
            static_cast<unsigned>((this->settings_flags_ & SETTINGS_WORK_MODE_MASK) >> SETTINGS_WORK_MODE_SHIFT),
-           (this->settings_flags_ & SETTINGS_CAR_CHARGER_MASK) != 0 ? "ON" : "OFF");
+           (this->settings_flags_ & SETTINGS_CAR_CHARGER_MASK) != 0 ? "ON" : "OFF", hardware_version.c_str(),
+           firmware_version.c_str());
 }
 
 void AllpowersBLE::publish_switch_states_() {
