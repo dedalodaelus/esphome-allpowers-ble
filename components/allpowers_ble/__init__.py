@@ -32,6 +32,9 @@ AllpowersBLE = allpowers_ble_ns.class_(
 OutputType = allpowers_ble_ns.enum("OutputType", is_class=True)
 AllpowersBLESwitch = allpowers_ble_ns.class_("AllpowersBLESwitch", switch_.Switch)
 AllpowersBLEEcoSwitch = allpowers_ble_ns.class_("AllpowersBLEEcoSwitch", switch_.Switch)
+AllpowersBLECarChargerSwitch = allpowers_ble_ns.class_(
+    "AllpowersBLECarChargerSwitch", switch_.Switch
+)
 AllpowersBLEEcoShutdownTimeSelect = allpowers_ble_ns.class_(
     "AllpowersBLEEcoShutdownTimeSelect", select_.Select
 )

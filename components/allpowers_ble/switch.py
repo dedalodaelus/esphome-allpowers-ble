@@ -11,12 +11,14 @@ import esphome.config_validation as cv
 from . import (
     CONF_ALLPOWERS_BLE_ID,
     AllpowersBLE,
+    AllpowersBLECarChargerSwitch,
     AllpowersBLEEcoSwitch,
     AllpowersBLESwitch,
     OutputType,
 )
 
 CONF_AC_OUTPUT = "ac_output"
+CONF_CAR_CHARGER = "car_charger"
 CONF_DC_OUTPUT = "dc_output"
 CONF_ECO_MODE = "eco_mode"
 CONF_LIGHT = "light"
@@ -51,6 +53,13 @@ CONFIG_SCHEMA = cv.Schema(
             block_inverted=True,
             default_restore_mode="DISABLED",
         ),
+        cv.Optional(CONF_CAR_CHARGER): switch.switch_schema(
+            AllpowersBLECarChargerSwitch,
+            # The car-charger bit shares the complete settings command. Never
+            # restore it before the station has supplied the other fields.
+            block_inverted=True,
+            default_restore_mode="DISABLED",
+        ),
     }
 )
 
@@ -70,3 +79,8 @@ async def to_code(config):
         var = await switch.new_switch(conf)
         cg.add(var.set_parent(parent))
         cg.add(parent.set_eco_switch(var))
+
+    if conf := config.get(CONF_CAR_CHARGER):
+        var = await switch.new_switch(conf)
+        cg.add(var.set_parent(parent))
+        cg.add(parent.set_car_charger_switch(var))
