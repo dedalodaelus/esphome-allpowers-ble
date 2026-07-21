@@ -26,6 +26,7 @@ AllpowersBLE = allpowers_ble_ns.class_(
 # `allpowers_ble::OutputType::AC`.
 OutputType = allpowers_ble_ns.enum("OutputType", is_class=True)
 AllpowersBLESwitch = allpowers_ble_ns.class_("AllpowersBLESwitch", switch_.Switch)
+AllpowersBLEEcoSwitch = allpowers_ble_ns.class_("AllpowersBLEEcoSwitch", switch_.Switch)
 
 CONFIG_SCHEMA = (
     cv.Schema(

@@ -19,16 +19,18 @@ from . import CONF_ALLPOWERS_BLE_ID, AllpowersBLE
 CONF_CONNECTED = "connected"
 CONF_DATA_VALID = "data_valid"
 CONF_CONTROLS_AVAILABLE = "controls_available"
+CONF_SETTINGS_AVAILABLE = "settings_available"
 CONF_AC_OUTPUT = "ac_output"
 CONF_DC_OUTPUT = "dc_output"
+CONF_ECO_MODE = "eco_mode"
 CONF_LIGHT = "light"
 CONF_CHARGING = "charging"
 CONF_DISCHARGING = "discharging"
 CONF_PROTOCOL_ERROR = "protocol_error"
 
-# Connection state, valid telemetry and writable controls are deliberately
-# distinct. A BLE link can exist before notifications are usable, and controls
-# remain blocked until a fresh status frame establishes the complete bitmap.
+# Connection, telemetry readiness and settings readiness are deliberately
+# distinct. Output writes require a fresh status bitmap; ECO writes require a
+# fresh settings bitmap because the two command families preserve different data.
 BINARY_SENSORS = {
     CONF_CONNECTED: (
         "set_connected_binary_sensor",
@@ -51,12 +53,23 @@ BINARY_SENSORS = {
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
         ),
     ),
+    CONF_SETTINGS_AVAILABLE: (
+        "set_settings_available_binary_sensor",
+        binary_sensor.binary_sensor_schema(
+            device_class=DEVICE_CLASS_CONNECTIVITY,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        ),
+    ),
     CONF_AC_OUTPUT: (
         "set_ac_output_binary_sensor",
         binary_sensor.binary_sensor_schema(),
     ),
     CONF_DC_OUTPUT: (
         "set_dc_output_binary_sensor",
+        binary_sensor.binary_sensor_schema(),
+    ),
+    CONF_ECO_MODE: (
+        "set_eco_mode_binary_sensor",
         binary_sensor.binary_sensor_schema(),
     ),
     CONF_LIGHT: (
