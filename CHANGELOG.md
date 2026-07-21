@@ -14,6 +14,8 @@ for published releases.
   command-`0x03` settings snapshot.
 - ECO shutdown-time state and control for the verified 1, 2, 4 and 6 hour values.
 - Work mode state and control for Mute, Standard and Fast modes.
+- Independent car charger/12 V automotive socket state and control using the
+  verified settings bitmap.
 - Separate `Settings Available` readiness and confirmed `ECO Mode Status`
   entities for safe Home Assistant controls.
 
@@ -22,7 +24,9 @@ for published releases.
 - Split notification handling by protocol command so settings reports cannot be
   misinterpreted as telemetry and valid unsupported commands are ignored safely.
 - Regression tests covering notification envelopes, status/settings parsing,
-  all AC/DC/light output combinations, and ECO read-modify-write preservation.
+  all AC/DC/light output combinations, ECO read-modify-write preservation,
+  every supported ECO shutdown-time value, all verified work modes, and both
+  car-charger states.
 
 ### Fixed
 
