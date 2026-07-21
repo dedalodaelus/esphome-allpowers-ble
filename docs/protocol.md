@@ -61,7 +61,7 @@ A complete settings response has at least 14 bytes. The fields used by the imple
 | Offset | Meaning |
 |---|---|
 | Byte 7, bit 0 | ECO enabled |
-| Byte 7, bits 1-2 | Charging mode, preserved but not exposed |
+| Byte 7, bits 1-2 | Work mode: `0` Mute, `1` Standard, `2` Fast; `3` reserved |
 | Byte 7, bit 3 | AC mode, preserved but not exposed |
 | Byte 7, bit 4 | Car/DC port, preserved but not exposed |
 | Byte 7, bit 5 | Self-use mode, preserved but not exposed |
@@ -70,11 +70,12 @@ A complete settings response has at least 14 bytes. The fields used by the imple
 | Bytes 9-10 | Charging-time field, not exposed |
 | Bytes 11-12 | Hardware and software versions, not exposed |
 
-The component stores bytes 7 and 8 as a raw settings snapshot. ECO mode and shutdown-time writes remain
-unavailable until this snapshot is received and become unavailable again when it is stale or BLE
-disconnects. Unknown timeout values are preserved but are not mapped to one of the verified select options.
+The component stores bytes 7 and 8 as a raw settings snapshot. ECO mode, shutdown-time and work-mode writes
+remain unavailable until this snapshot is received and become unavailable again when it is stale or BLE
+disconnects. Unknown timeout values and the reserved work-mode value are preserved but are not mapped to
+verified select options.
 
-## ECO write: command `0x02`
+## Settings write: command `0x02`
 
 ```text
 A5 65 00 B1 01 02 02 SS TT XX
@@ -82,12 +83,17 @@ A5 65 00 B1 01 02 02 SS TT XX
 
 - For an ECO mode change, `SS` is copied from the latest settings notification with only bit 0 changed.
 - For a shutdown-time change, `TT` is replaced with `1`, `2`, `4` or `6`; `SS` is copied unchanged.
-- The field not being changed is copied verbatim from the latest settings notification.
+- For a work-mode change, only bits 1-2 of `SS` are replaced with `0`, `1` or `2`.
+- Every field not being changed is copied verbatim from the latest settings notification.
 - `XX` is the XOR of bytes 0 through 8.
 
-This read-modify-write rule prevents either ECO control from silently changing charging mode, AC mode,
-the car/DC port, self-use mode or reserved bits. Both controls use the same stored snapshot and frame
-builder, which is the extension point for additional settings implemented later.
+This read-modify-write rule prevents one settings control from silently changing another, or changing AC mode,
+the car/DC port, self-use mode or reserved bits. All three controls use the same stored snapshot and frame
+builder, which remains the extension point for additional verified settings.
+
+The official application sends a separate buzzer-control command after selecting Mute Mode. This component
+intentionally does not reproduce that unrelated side effect; Work Mode changes only bits 1-2 of the settings
+bitmap.
 
 ## Experimental field
 
@@ -98,7 +104,7 @@ disabled-by-default diagnostic entity.
 
 The currently verified implementation does not expose:
 
-- Charging mode or charging limits
+- Charging limits
 - Car/DC output as an independent control
 - Self-use mode
 - USB output as an independent channel

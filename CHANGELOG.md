@@ -13,6 +13,7 @@ for published releases.
 - ECO mode state and control using the R600 settings command, gated by a fresh
   command-`0x03` settings snapshot.
 - ECO shutdown-time state and control for the verified 1, 2, 4 and 6 hour values.
+- Work mode state and control for Mute, Standard and Fast modes.
 - Separate `Settings Available` readiness and confirmed `ECO Mode Status`
   entities for safe Home Assistant controls.
 
@@ -27,6 +28,10 @@ for published releases.
 
 - Preserve charging mode, AC mode, car/DC port, self-use, reserved bits and the
   current ECO timeout when toggling ECO.
+- Preserve the complete settings bitmap when changing ECO shutdown time and
+  reject values not exposed by the official R600 application.
+- Preserve ECO, car/DC, AC mode, self-use, reserved bits and timeout when
+  changing work mode; reject the reserved two-bit value.
 
 ## [0.1.0] - 2026/07/20
 
@@ -94,6 +99,12 @@ for published releases.
 - Preserve the last confirmed output bitmap when a GATT write cannot be queued.
 - Prevent manual BLE disconnection from being immediately undone by automatic
   reconnection.
+- Preserve charging mode, AC mode, car/DC port, self-use, reserved bits and the
+  current ECO timeout when toggling ECO.
+- Preserve the complete settings bitmap when changing ECO shutdown time and
+  reject values not exposed by the official R600 application.
+- Preserve ECO, car/DC, AC mode, self-use, reserved bits and timeout when
+  changing work mode; reject the reserved two-bit value.
 
 ### Security
 
