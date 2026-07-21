@@ -37,6 +37,8 @@ class SettingsStatus:
     eco_enabled: bool
     work_mode: int
     car_charger_enabled: bool
+    hardware_version: str
+    firmware_version: str
 
 
 def xor_bytes(data: bytes | bytearray) -> int:
@@ -81,6 +83,16 @@ def parse_status(packet: bytes) -> Status:
     )
 
 
+def format_version(encoded_version: int) -> str:
+    """Mirror the station-version conversion used by the component."""
+
+    major = encoded_version >> 4
+    minor = encoded_version & 0x0F
+    if major > 9 or minor > 9:
+        return f"0x{encoded_version:02X}"
+    return f"{major}.{minor}"
+
+
 def parse_settings(packet: bytes) -> SettingsStatus:
     """Parse a command-0x03 settings notification."""
 
@@ -95,6 +107,8 @@ def parse_settings(packet: bytes) -> SettingsStatus:
         eco_enabled=bool(flags & ECO_MODE_MASK),
         work_mode=(flags & WORK_MODE_MASK) >> WORK_MODE_SHIFT,
         car_charger_enabled=bool(flags & CAR_CHARGER_MASK),
+        hardware_version=format_version(packet[11]),
+        firmware_version=format_version(packet[12]),
     )
 
 
@@ -203,6 +217,16 @@ def test_settings_parser() -> None:
     assert parsed.eco_enabled
     assert parsed.work_mode == 3
     assert parsed.car_charger_enabled
+    assert parsed.hardware_version == "1.2"
+    assert parsed.firmware_version == "3.4"
+
+
+def test_version_formatter_preserves_unexpected_encoding() -> None:
+    """Expose non-decimal nibbles as raw data rather than a false version."""
+
+    assert format_version(0x01) == "0.1"
+    assert format_version(0x10) == "1.0"
+    assert format_version(0xAF) == "0xAF"
 
 
 def test_invalid_notifications_are_rejected() -> None:
