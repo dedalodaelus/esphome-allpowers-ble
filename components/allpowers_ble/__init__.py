@@ -35,6 +35,9 @@ AllpowersBLEEcoSwitch = allpowers_ble_ns.class_("AllpowersBLEEcoSwitch", switch_
 AllpowersBLEEcoShutdownTimeSelect = allpowers_ble_ns.class_(
     "AllpowersBLEEcoShutdownTimeSelect", select_.Select
 )
+AllpowersBLEWorkModeSelect = allpowers_ble_ns.class_(
+    "AllpowersBLEWorkModeSelect", select_.Select
+)
 
 CONFIG_SCHEMA = (
     cv.Schema(
