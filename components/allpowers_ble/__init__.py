@@ -5,11 +5,16 @@
 # https://github.com/madninjaskillz/allpowers-ble
 
 import esphome.codegen as cg
-from esphome.components import ble_client, esp32_ble_tracker, switch as switch_
+from esphome.components import (
+    ble_client,
+    esp32_ble_tracker,
+    select as select_,
+    switch as switch_,
+)
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
 
-AUTO_LOAD = ["sensor", "binary_sensor", "switch"]
+AUTO_LOAD = ["sensor", "binary_sensor", "switch", "select"]
 DEPENDENCIES = ["ble_client"]
 MULTI_CONF = True
 
@@ -27,6 +32,9 @@ AllpowersBLE = allpowers_ble_ns.class_(
 OutputType = allpowers_ble_ns.enum("OutputType", is_class=True)
 AllpowersBLESwitch = allpowers_ble_ns.class_("AllpowersBLESwitch", switch_.Switch)
 AllpowersBLEEcoSwitch = allpowers_ble_ns.class_("AllpowersBLEEcoSwitch", switch_.Switch)
+AllpowersBLEEcoShutdownTimeSelect = allpowers_ble_ns.class_(
+    "AllpowersBLEEcoShutdownTimeSelect", select_.Select
+)
 
 CONFIG_SCHEMA = (
     cv.Schema(
