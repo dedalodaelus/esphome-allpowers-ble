@@ -333,7 +333,7 @@ void AllpowersBLE::process_settings_notification_(const uint8_t *data, uint16_t 
 
   // Command 0x03 reports the complete settings bitmap and ECO timeout. Store
   // both raw fields so each supported setting can be changed without resetting
-  // charging mode, AC mode, car port, self-use or reserved bits.
+  // AC mode, self-use or reserved bits.
   this->settings_flags_ = data[SETTINGS_FLAGS_OFFSET];
   this->eco_time_ = data[SETTINGS_ECO_TIME_OFFSET];
   this->have_settings_ = true;
@@ -344,9 +344,10 @@ void AllpowersBLE::process_settings_notification_(const uint8_t *data, uint16_t 
   this->publish_settings_available_(this->settings_available_());
   this->set_protocol_error_(false);
 
-  ESP_LOGD(TAG, "Settings: flags=0x%02X, ECO=%s, ECO timeout=%u, work mode=%u", this->settings_flags_,
+  ESP_LOGD(TAG, "Settings: flags=0x%02X, ECO=%s, ECO timeout=%u, work mode=%u, car charger=%s", this->settings_flags_,
            (this->settings_flags_ & SETTINGS_ECO_MASK) != 0 ? "ON" : "OFF", this->eco_time_,
-           static_cast<unsigned>((this->settings_flags_ & SETTINGS_WORK_MODE_MASK) >> SETTINGS_WORK_MODE_SHIFT));
+           static_cast<unsigned>((this->settings_flags_ & SETTINGS_WORK_MODE_MASK) >> SETTINGS_WORK_MODE_SHIFT),
+           (this->settings_flags_ & SETTINGS_CAR_CHARGER_MASK) != 0 ? "ON" : "OFF");
 }
 
 void AllpowersBLE::publish_switch_states_() {
@@ -364,6 +365,8 @@ void AllpowersBLE::publish_settings_states_() {
     this->eco_mode_binary_sensor_->publish_state(eco_enabled);
   if (this->eco_switch_ != nullptr)
     this->eco_switch_->publish_state(eco_enabled);
+  if (this->car_charger_switch_ != nullptr)
+    this->car_charger_switch_->publish_state((this->settings_flags_ & SETTINGS_CAR_CHARGER_MASK) != 0);
   if (this->eco_shutdown_time_select_ != nullptr)
     this->eco_shutdown_time_select_->publish_hours(this->eco_time_);
   if (this->work_mode_select_ != nullptr) {
@@ -536,6 +539,43 @@ bool AllpowersBLE::request_work_mode(uint8_t mode) {
   return false;
 }
 
+bool AllpowersBLE::request_car_charger(bool state) {
+  // The R600 reports the automotive 12 V socket in bit 4 of the shared
+  // settings bitmap. Preserve the other settings and the ECO timeout exactly
+  // as last reported by command 0x03.
+  if (!this->settings_available_()) {
+    ESP_LOGW(TAG,
+             "Ignoring car charger command: ALLPOWERS settings are unavailable until a settings frame is received");
+    return false;
+  }
+
+  const bool current_state = (this->settings_flags_ & SETTINGS_CAR_CHARGER_MASK) != 0;
+  if (current_state == state) {
+    // Accepted settings writes produce an audible acknowledgement, so avoid a
+    // command that cannot change the confirmed state.
+    this->publish_settings_states_();
+    return true;
+  }
+
+  const uint8_t old_flags = this->settings_flags_;
+  if (state) {
+    this->settings_flags_ |= SETTINGS_CAR_CHARGER_MASK;
+  } else {
+    this->settings_flags_ &= static_cast<uint8_t>(~SETTINGS_CAR_CHARGER_MASK);
+  }
+
+  if (this->send_settings_frame_()) {
+    // ESP-IDF accepting the write is not confirmation from the station. The
+    // next command-0x03 notification remains authoritative.
+    this->publish_settings_states_();
+    return true;
+  }
+
+  this->settings_flags_ = old_flags;
+  this->publish_settings_states_();
+  return false;
+}
+
 bool AllpowersBLE::send_control_frame_() {
   // Exact control frame and check-byte calculation from allpowers-ble. The
   // final byte is reproduced from upstream behavior; it is not treated as a
@@ -672,6 +712,14 @@ void AllpowersBLEEcoSwitch::write_state(bool state) {
     return;
   }
   this->parent_->request_eco_mode(state);
+}
+
+void AllpowersBLECarChargerSwitch::write_state(bool state) {
+  if (this->parent_ == nullptr) {
+    ESP_LOGE(TAG, "ALLPOWERS car charger switch has no parent component");
+    return;
+  }
+  this->parent_->request_car_charger(state);
 }
 
 void AllpowersBLEEcoShutdownTimeSelect::publish_hours(uint8_t hours) {

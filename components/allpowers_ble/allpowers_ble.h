@@ -29,6 +29,7 @@ enum class OutputType : uint8_t { AC = 0, DC = 1, LIGHT = 2 };
 
 class AllpowersBLESwitch;
 class AllpowersBLEEcoSwitch;
+class AllpowersBLECarChargerSwitch;
 class AllpowersBLEEcoShutdownTimeSelect;
 class AllpowersBLEWorkModeSelect;
 
@@ -75,6 +76,7 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   void set_dc_switch(AllpowersBLESwitch *sw) { this->dc_switch_ = sw; }
   void set_light_switch(AllpowersBLESwitch *sw) { this->light_switch_ = sw; }
   void set_eco_switch(AllpowersBLEEcoSwitch *sw) { this->eco_switch_ = sw; }
+  void set_car_charger_switch(AllpowersBLECarChargerSwitch *sw) { this->car_charger_switch_ = sw; }
   void set_eco_shutdown_time_select(AllpowersBLEEcoShutdownTimeSelect *select) {
     this->eco_shutdown_time_select_ = select;
   }
@@ -84,6 +86,7 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   bool request_eco_mode(bool state);
   bool request_eco_shutdown_time(uint8_t hours);
   bool request_work_mode(uint8_t mode);
+  bool request_car_charger(bool state);
 
  protected:
   static constexpr uint16_t NOTIFY_UUID = 0xFFF1;
@@ -115,6 +118,7 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   static constexpr uint8_t SETTINGS_ECO_MASK = 1U << 0U;
   static constexpr uint8_t SETTINGS_WORK_MODE_MASK = 0x06U;
   static constexpr uint8_t SETTINGS_WORK_MODE_SHIFT = 1U;
+  static constexpr uint8_t SETTINGS_CAR_CHARGER_MASK = 1U << 4U;
 
   static constexpr uint8_t STATUS_DC_MASK = 1U << 0U;
   static constexpr uint8_t STATUS_AC_MASK = 1U << 1U;
@@ -159,7 +163,7 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
 
   // Settings writes are read-modify-write operations. A fresh command-0x03
   // notification must establish these raw values before ECO mode, its shutdown
-  // time or the charging work mode can be changed.
+  // time, work mode or the independent car-charger output can be changed.
   bool have_settings_{false};
   bool settings_fresh_{false};
   uint8_t settings_flags_{0};
@@ -193,6 +197,7 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   AllpowersBLESwitch *dc_switch_{nullptr};
   AllpowersBLESwitch *light_switch_{nullptr};
   AllpowersBLEEcoSwitch *eco_switch_{nullptr};
+  AllpowersBLECarChargerSwitch *car_charger_switch_{nullptr};
   AllpowersBLEEcoShutdownTimeSelect *eco_shutdown_time_select_{nullptr};
   AllpowersBLEWorkModeSelect *work_mode_select_{nullptr};
 };
@@ -210,6 +215,16 @@ class AllpowersBLESwitch final : public switch_::Switch {
 };
 
 class AllpowersBLEEcoSwitch final : public switch_::Switch {
+ public:
+  void set_parent(AllpowersBLE *parent) { this->parent_ = parent; }
+
+ protected:
+  void write_state(bool state) override;
+
+  AllpowersBLE *parent_{nullptr};
+};
+
+class AllpowersBLECarChargerSwitch final : public switch_::Switch {
  public:
   void set_parent(AllpowersBLE *parent) { this->parent_ = parent; }
 
