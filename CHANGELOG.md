@@ -10,6 +10,27 @@ for published releases.
 
 ### Added
 
+- ECO mode state and control using the R600 settings command, gated by a fresh
+  command-`0x03` settings snapshot.
+- Separate `Settings Available` readiness and confirmed `ECO Mode Status`
+  entities for safe Home Assistant controls.
+
+### Changed
+
+- Split notification handling by protocol command so settings reports cannot be
+  misinterpreted as telemetry and valid unsupported commands are ignored safely.
+- Regression tests covering notification envelopes, status/settings parsing,
+  all AC/DC/light output combinations, and ECO read-modify-write preservation.
+
+### Fixed
+
+- Preserve charging mode, AC mode, car/DC port, self-use, reserved bits and the
+  current ECO timeout when toggling ECO.
+
+## [0.1.0] - 2026/07/20
+
+### Added
+
 - External ESPHome component for ALLPOWERS power stations that use the BLE
   protocol implemented by the upstream `madninjaskillz/allpowers-ble` project.
 - BLE status parsing for battery level, total input power, total output power,
