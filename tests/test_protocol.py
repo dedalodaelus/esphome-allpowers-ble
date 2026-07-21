@@ -11,6 +11,7 @@ ECO_SHUTDOWN_HOURS = (1, 2, 4, 6)
 WORK_MODE_MASK = 0x06
 WORK_MODE_SHIFT = 1
 WORK_MODES = (0, 1, 2)
+CAR_CHARGER_MASK = 0x10
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,7 @@ class SettingsStatus:
     eco_time: int
     eco_enabled: bool
     work_mode: int
+    car_charger_enabled: bool
 
 
 def xor_bytes(data: bytes | bytearray) -> int:
@@ -92,6 +94,7 @@ def parse_settings(packet: bytes) -> SettingsStatus:
         eco_time=packet[8],
         eco_enabled=bool(flags & ECO_MODE_MASK),
         work_mode=(flags & WORK_MODE_MASK) >> WORK_MODE_SHIFT,
+        car_charger_enabled=bool(flags & CAR_CHARGER_MASK),
     )
 
 
@@ -162,6 +165,19 @@ def make_work_mode_frame(*, settings_flags: int, eco_time: int, mode: int) -> by
     return make_settings_frame(settings_flags=flags, eco_time=eco_time)
 
 
+def make_car_charger_frame(
+    *, settings_flags: int, eco_time: int, enabled: bool
+) -> bytes:
+    """Change only the verified car-charger bit."""
+
+    flags = (
+        settings_flags | CAR_CHARGER_MASK
+        if enabled
+        else settings_flags & ~CAR_CHARGER_MASK
+    )
+    return make_settings_frame(settings_flags=flags, eco_time=eco_time)
+
+
 def test_status_parser() -> None:
     """Decode the known command-0x01 field offsets and a valid checksum."""
 
@@ -186,6 +202,7 @@ def test_settings_parser() -> None:
     assert parsed.eco_time == 4
     assert parsed.eco_enabled
     assert parsed.work_mode == 3
+    assert parsed.car_charger_enabled
 
 
 def test_invalid_notifications_are_rejected() -> None:
@@ -284,6 +301,20 @@ def test_work_mode_preserves_other_settings() -> None:
         assert xor_bytes(frame) == 0
 
 
+def test_car_charger_preserves_other_settings() -> None:
+    """Toggle bit 4 without changing other settings or the ECO timeout."""
+
+    enabled = make_car_charger_frame(settings_flags=0xA6, eco_time=4, enabled=True)
+    disabled = make_car_charger_frame(settings_flags=0xB6, eco_time=4, enabled=False)
+
+    assert enabled.hex().upper() == "A56500B1010202B604C2"
+    assert disabled.hex().upper() == "A56500B1010202A604D2"
+    assert enabled[7] & ~CAR_CHARGER_MASK == 0xA6
+    assert disabled[7] & ~CAR_CHARGER_MASK == 0xA6
+    assert enabled[8] == disabled[8] == 4
+    assert xor_bytes(enabled) == xor_bytes(disabled) == 0
+
+
 def test_unsupported_work_mode_is_rejected() -> None:
     """Reject the reserved two-bit value and values outside the field."""
 
@@ -305,5 +336,6 @@ if __name__ == "__main__":
     test_eco_shutdown_time_preserves_settings_bitmap()
     test_unsupported_eco_shutdown_time_is_rejected()
     test_work_mode_preserves_other_settings()
+    test_car_charger_preserves_other_settings()
     test_unsupported_work_mode_is_rejected()
     print("Protocol tests passed")
