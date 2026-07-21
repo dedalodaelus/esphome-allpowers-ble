@@ -30,6 +30,7 @@ enum class OutputType : uint8_t { AC = 0, DC = 1, LIGHT = 2 };
 class AllpowersBLESwitch;
 class AllpowersBLEEcoSwitch;
 class AllpowersBLEEcoShutdownTimeSelect;
+class AllpowersBLEWorkModeSelect;
 
 class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
  public:
@@ -77,10 +78,12 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   void set_eco_shutdown_time_select(AllpowersBLEEcoShutdownTimeSelect *select) {
     this->eco_shutdown_time_select_ = select;
   }
+  void set_work_mode_select(AllpowersBLEWorkModeSelect *select) { this->work_mode_select_ = select; }
 
   bool request_output(OutputType output, bool state);
   bool request_eco_mode(bool state);
   bool request_eco_shutdown_time(uint8_t hours);
+  bool request_work_mode(uint8_t mode);
 
  protected:
   static constexpr uint16_t NOTIFY_UUID = 0xFFF1;
@@ -110,6 +113,8 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   static constexpr size_t SETTINGS_FLAGS_OFFSET = 7;
   static constexpr size_t SETTINGS_ECO_TIME_OFFSET = 8;
   static constexpr uint8_t SETTINGS_ECO_MASK = 1U << 0U;
+  static constexpr uint8_t SETTINGS_WORK_MODE_MASK = 0x06U;
+  static constexpr uint8_t SETTINGS_WORK_MODE_SHIFT = 1U;
 
   static constexpr uint8_t STATUS_DC_MASK = 1U << 0U;
   static constexpr uint8_t STATUS_AC_MASK = 1U << 1U;
@@ -153,8 +158,8 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   bool light_on_{false};
 
   // Settings writes are read-modify-write operations. A fresh command-0x03
-  // notification must establish these raw values before ECO mode or its
-  // shutdown time can be changed.
+  // notification must establish these raw values before ECO mode, its shutdown
+  // time or the charging work mode can be changed.
   bool have_settings_{false};
   bool settings_fresh_{false};
   uint8_t settings_flags_{0};
@@ -189,6 +194,7 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   AllpowersBLESwitch *light_switch_{nullptr};
   AllpowersBLEEcoSwitch *eco_switch_{nullptr};
   AllpowersBLEEcoShutdownTimeSelect *eco_shutdown_time_select_{nullptr};
+  AllpowersBLEWorkModeSelect *work_mode_select_{nullptr};
 };
 
 class AllpowersBLESwitch final : public switch_::Switch {
@@ -217,6 +223,18 @@ class AllpowersBLEEcoShutdownTimeSelect final : public select::Select {
  public:
   void set_parent(AllpowersBLE *parent) { this->parent_ = parent; }
   void publish_hours(uint8_t hours);
+  void clear_state() { this->set_has_state(false); }
+
+ protected:
+  void control(size_t index) override;
+
+  AllpowersBLE *parent_{nullptr};
+};
+
+class AllpowersBLEWorkModeSelect final : public select::Select {
+ public:
+  void set_parent(AllpowersBLE *parent) { this->parent_ = parent; }
+  void publish_mode(uint8_t mode);
   void clear_state() { this->set_has_state(false); }
 
  protected:

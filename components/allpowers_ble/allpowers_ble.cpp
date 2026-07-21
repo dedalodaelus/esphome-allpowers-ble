@@ -22,6 +22,7 @@ namespace esphome::allpowers_ble {
 
 static const char *const TAG = "allpowers_ble";
 static constexpr std::array<uint8_t, 4> ECO_SHUTDOWN_HOURS{{1, 2, 4, 6}};
+static constexpr std::array<uint8_t, 3> WORK_MODES{{0, 1, 2}};
 
 void AllpowersBLE::setup() {
   if (this->connected_binary_sensor_ != nullptr)
@@ -343,8 +344,9 @@ void AllpowersBLE::process_settings_notification_(const uint8_t *data, uint16_t 
   this->publish_settings_available_(this->settings_available_());
   this->set_protocol_error_(false);
 
-  ESP_LOGD(TAG, "Settings: flags=0x%02X, ECO=%s, ECO timeout=%u", this->settings_flags_,
-           (this->settings_flags_ & SETTINGS_ECO_MASK) != 0 ? "ON" : "OFF", this->eco_time_);
+  ESP_LOGD(TAG, "Settings: flags=0x%02X, ECO=%s, ECO timeout=%u, work mode=%u", this->settings_flags_,
+           (this->settings_flags_ & SETTINGS_ECO_MASK) != 0 ? "ON" : "OFF", this->eco_time_,
+           static_cast<unsigned>((this->settings_flags_ & SETTINGS_WORK_MODE_MASK) >> SETTINGS_WORK_MODE_SHIFT));
 }
 
 void AllpowersBLE::publish_switch_states_() {
@@ -364,6 +366,10 @@ void AllpowersBLE::publish_settings_states_() {
     this->eco_switch_->publish_state(eco_enabled);
   if (this->eco_shutdown_time_select_ != nullptr)
     this->eco_shutdown_time_select_->publish_hours(this->eco_time_);
+  if (this->work_mode_select_ != nullptr) {
+    const uint8_t work_mode = (this->settings_flags_ & SETTINGS_WORK_MODE_MASK) >> SETTINGS_WORK_MODE_SHIFT;
+    this->work_mode_select_->publish_mode(work_mode);
+  }
 }
 
 bool AllpowersBLE::controls_available_() const {
@@ -490,6 +496,46 @@ bool AllpowersBLE::request_eco_shutdown_time(uint8_t hours) {
   return false;
 }
 
+bool AllpowersBLE::request_work_mode(uint8_t mode) {
+  if (std::find(WORK_MODES.begin(), WORK_MODES.end(), mode) == WORK_MODES.end()) {
+    ESP_LOGE(TAG, "Ignoring unsupported work mode: %u", static_cast<unsigned>(mode));
+    return false;
+  }
+
+  // Work mode occupies bits 1-2 of the shared settings bitmap. Start from the
+  // latest complete snapshot so ECO, car/DC, AC mode, self-use and reserved
+  // bits are not altered as a side effect.
+  if (!this->settings_available_()) {
+    ESP_LOGW(TAG, "Ignoring work mode command: ALLPOWERS settings are unavailable until a settings frame is received");
+    return false;
+  }
+
+  const uint8_t current_mode = (this->settings_flags_ & SETTINGS_WORK_MODE_MASK) >> SETTINGS_WORK_MODE_SHIFT;
+  if (current_mode == mode) {
+    // Avoid a redundant write and the audible acknowledgement produced by the
+    // R600 for accepted settings commands.
+    this->publish_settings_states_();
+    return true;
+  }
+
+  const uint8_t old_flags = this->settings_flags_;
+  this->settings_flags_ =
+      static_cast<uint8_t>((this->settings_flags_ & static_cast<uint8_t>(~SETTINGS_WORK_MODE_MASK)) |
+                           static_cast<uint8_t>(mode << SETTINGS_WORK_MODE_SHIFT));
+
+  if (this->send_settings_frame_()) {
+    // The next command-0x03 notification remains authoritative. This component
+    // intentionally changes only the work-mode bits; it does not reproduce the
+    // official app's separate buzzer command when Mute Mode is selected.
+    this->publish_settings_states_();
+    return true;
+  }
+
+  this->settings_flags_ = old_flags;
+  this->publish_settings_states_();
+  return false;
+}
+
 bool AllpowersBLE::send_control_frame_() {
   // Exact control frame and check-byte calculation from allpowers-ble. The
   // final byte is reproduced from upstream behavior; it is not treated as a
@@ -593,6 +639,8 @@ void AllpowersBLE::invalidate_settings_entities_() {
     this->eco_mode_binary_sensor_->invalidate_state();
   if (this->eco_shutdown_time_select_ != nullptr)
     this->eco_shutdown_time_select_->clear_state();
+  if (this->work_mode_select_ != nullptr)
+    this->work_mode_select_->clear_state();
 }
 
 void AllpowersBLE::publish_controls_available_(bool state) {
@@ -647,6 +695,29 @@ void AllpowersBLEEcoShutdownTimeSelect::control(size_t index) {
     return;
   }
   this->parent_->request_eco_shutdown_time(ECO_SHUTDOWN_HOURS[index]);
+}
+
+void AllpowersBLEWorkModeSelect::publish_mode(uint8_t mode) {
+  const auto option = std::find(WORK_MODES.begin(), WORK_MODES.end(), mode);
+  if (option == WORK_MODES.end()) {
+    // Protocol value 3 is reserved by the two-bit field. Keep it in the parent
+    // snapshot for future writes, but do not present it as a known mode.
+    this->clear_state();
+    return;
+  }
+  this->publish_state(static_cast<size_t>(option - WORK_MODES.begin()));
+}
+
+void AllpowersBLEWorkModeSelect::control(size_t index) {
+  if (this->parent_ == nullptr) {
+    ESP_LOGE(TAG, "ALLPOWERS work mode select has no parent component");
+    return;
+  }
+  if (index >= WORK_MODES.size()) {
+    ESP_LOGE(TAG, "Invalid work mode option index: %u", static_cast<unsigned>(index));
+    return;
+  }
+  this->parent_->request_work_mode(WORK_MODES[index]);
 }
 
 }  // namespace esphome::allpowers_ble
