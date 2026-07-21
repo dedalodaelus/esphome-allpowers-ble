@@ -209,6 +209,15 @@ binary_sensor:
       device_id: ${allpowers_id}_device
       entity_category: diagnostic
 
+    # ECO uses a different command family from the output switches. It becomes
+    # writable only after a fresh settings notification has established every
+    # field that the combined settings command must preserve.
+    settings_available:
+      id: ${allpowers_id}_settings_available
+      name: "Settings Available"
+      device_id: ${allpowers_id}_device
+      entity_category: diagnostic
+
     ac_output:
       id: ${allpowers_id}_ac_output_active
       name: "AC Output Status"
@@ -218,6 +227,12 @@ binary_sensor:
       id: ${allpowers_id}_dc_output_active
       name: "DC Output Status"
       device_id: ${allpowers_id}_device
+
+    eco_mode:
+      id: ${allpowers_id}_eco_mode_active
+      name: "ECO Mode Status"
+      device_id: ${allpowers_id}_device
+      icon: mdi:leaf
 
     light:
       id: ${allpowers_id}_light_active
@@ -302,6 +317,12 @@ switch:
       id: ${allpowers_id}_dc_output
       name: "DC Output"
       device_id: ${allpowers_id}_device
+
+    eco_mode:
+      id: ${allpowers_id}_eco_mode
+      name: "ECO Mode"
+      device_id: ${allpowers_id}_device
+      icon: mdi:leaf
 
     light:
       id: ${allpowers_id}_light
