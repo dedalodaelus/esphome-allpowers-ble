@@ -28,6 +28,7 @@ void AllpowersBLE::setup() {
   if (this->data_valid_binary_sensor_ != nullptr)
     this->data_valid_binary_sensor_->publish_state(false);
   this->publish_controls_available_(false);
+  this->publish_settings_available_(false);
   this->set_protocol_error_(false);
 }
 
@@ -42,39 +43,58 @@ void AllpowersBLE::dump_config() {
 }
 
 void AllpowersBLE::loop() {
-  if (!this->data_fresh_ || this->stale_timeout_ms_ == 0 || this->last_valid_packet_ms_ == 0)
+  if (this->stale_timeout_ms_ == 0)
     return;
 
-  // The GATT link can remain open even when the station stops publishing
-  // telemetry. Expire the last snapshot so Home Assistant does not present
-  // stale values or allow writes based on an obsolete output bitmap.
-  if (millis() - this->last_valid_packet_ms_ > this->stale_timeout_ms_) {
+  const uint32_t now = millis();
+
+  // The GATT link can remain open when notifications stop. Telemetry and the
+  // settings snapshot expire independently because their commands have
+  // different payloads and safety requirements.
+  if (this->data_fresh_ && this->last_valid_packet_ms_ != 0 &&
+      now - this->last_valid_packet_ms_ > this->stale_timeout_ms_) {
     this->data_fresh_ = false;
     this->have_status_ = false;
+    this->last_valid_packet_ms_ = 0;
     if (this->data_valid_binary_sensor_ != nullptr)
       this->data_valid_binary_sensor_->publish_state(false);
     this->publish_controls_available_(false);
     this->invalidate_data_entities_();
     ESP_LOGW(TAG, "No valid ALLPOWERS status packet received within the configured timeout");
   }
+
+  if (this->settings_fresh_ && this->last_settings_packet_ms_ != 0 &&
+      now - this->last_settings_packet_ms_ > this->stale_timeout_ms_) {
+    this->settings_fresh_ = false;
+    this->have_settings_ = false;
+    this->last_settings_packet_ms_ = 0;
+    this->publish_settings_available_(false);
+    this->invalidate_settings_entities_();
+    ESP_LOGW(TAG, "No valid ALLPOWERS settings packet received within the configured timeout");
+  }
 }
 
 void AllpowersBLE::reset_connection_state_() {
   // Drop every handle and protocol-derived state together. A later reconnect
-  // must rediscover GATT and receive a fresh status frame before controls are
-  // exposed again.
+  // must rediscover GATT and receive fresh status/settings notifications
+  // before the corresponding controls are exposed again.
   this->notify_handle_ = 0;
   this->write_handle_ = 0;
   this->write_properties_ = static_cast<esp_gatt_char_prop_t>(0);
   this->have_status_ = false;
   this->data_fresh_ = false;
   this->last_valid_packet_ms_ = 0;
+  this->have_settings_ = false;
+  this->settings_fresh_ = false;
+  this->last_settings_packet_ms_ = 0;
   if (this->connected_binary_sensor_ != nullptr)
     this->connected_binary_sensor_->publish_state(false);
   if (this->data_valid_binary_sensor_ != nullptr)
     this->data_valid_binary_sensor_->publish_state(false);
   this->publish_controls_available_(false);
+  this->publish_settings_available_(false);
   this->invalidate_data_entities_();
+  this->invalidate_settings_entities_();
 }
 
 void AllpowersBLE::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
@@ -108,6 +128,7 @@ void AllpowersBLE::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
         ESP_LOGE(TAG, "Required ALLPOWERS GATT characteristics FFF1/FFF2 were not found under the configured service");
         this->set_protocol_error_(true);
         this->publish_controls_available_(false);
+        this->publish_settings_available_(false);
         // Mark this BLEClientNode's discovery phase as complete so ESPHome is
         // not left waiting indefinitely. Diagnostics still report failure and
         // controls remain unavailable because no valid handles/status exist.
@@ -124,6 +145,7 @@ void AllpowersBLE::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
         ESP_LOGE(TAG, "Characteristic FFF1 has neither notify nor indicate property");
         this->set_protocol_error_(true);
         this->publish_controls_available_(false);
+        this->publish_settings_available_(false);
         // See the discovery-failure note above: ESTABLISHED here means this
         // node finished setup, not that the ALLPOWERS protocol is usable.
         this->node_state = espbt::ClientState::ESTABLISHED;
@@ -135,6 +157,8 @@ void AllpowersBLE::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
       if (status != ESP_OK) {
         ESP_LOGE(TAG, "esp_ble_gattc_register_for_notify failed: %s", esp_err_to_name(status));
         this->set_protocol_error_(true);
+        this->publish_controls_available_(false);
+        this->publish_settings_available_(false);
         // Finish node setup without exposing controls. A future reconnect can
         // retry discovery and notification registration from a clean state.
         this->node_state = espbt::ClientState::ESTABLISHED;
@@ -148,6 +172,8 @@ void AllpowersBLE::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
       if (param->reg_for_notify.status != ESP_GATT_OK) {
         ESP_LOGE(TAG, "Notification registration failed, status=%d", param->reg_for_notify.status);
         this->set_protocol_error_(true);
+        this->publish_controls_available_(false);
+        this->publish_settings_available_(false);
       } else {
         ESP_LOGI(TAG, "Subscribed to ALLPOWERS notifications");
       }
@@ -163,7 +189,7 @@ void AllpowersBLE::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
 
     case ESP_GATTC_WRITE_CHAR_EVT:
       if (param->write.handle == this->write_handle_ && param->write.status != ESP_GATT_OK) {
-        ESP_LOGW(TAG, "Control write failed, status=%d", param->write.status);
+        ESP_LOGW(TAG, "ALLPOWERS write failed, status=%d", param->write.status);
         this->set_protocol_error_(true);
       }
       break;
@@ -173,24 +199,70 @@ void AllpowersBLE::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
   }
 }
 
+bool AllpowersBLE::validate_notification_(const uint8_t *data, uint16_t length) const {
+  if (length < MIN_FRAME_LENGTH) {
+    ESP_LOGW(TAG, "Ignoring short notification: expected at least %u bytes, received %u",
+             static_cast<unsigned>(MIN_FRAME_LENGTH), length);
+    return false;
+  }
+
+  if (data[0] != 0xA5 || data[1] != 0x65) {
+    ESP_LOGW(TAG, "Ignoring notification with unknown header: %02X %02X", data[0], data[1]);
+    return false;
+  }
+
+  // The official application validates notifications as an eight-byte frame
+  // envelope plus the payload length declared in byte 5. The final byte is the
+  // XOR of every preceding byte, so XOR across the complete frame must be zero.
+  const size_t expected_length = MIN_FRAME_LENGTH + data[PAYLOAD_LENGTH_OFFSET];
+  if (expected_length != length) {
+    ESP_LOGW(TAG, "Ignoring notification with inconsistent length: declared %u bytes, received %u",
+             static_cast<unsigned>(expected_length), length);
+    return false;
+  }
+
+  uint8_t checksum = 0;
+  for (size_t index = 0; index < length; index++)
+    checksum ^= data[index];
+  if (checksum != 0) {
+    ESP_LOGW(TAG, "Ignoring notification with invalid XOR checksum");
+    return false;
+  }
+
+  return true;
+}
+
 void AllpowersBLE::process_notification_(const uint8_t *data, uint16_t length) {
   ESP_LOGV(TAG, "Notification (%u bytes): %s", length, format_hex_pretty(data, length).c_str());
 
   if (this->packet_length_sensor_ != nullptr)
     this->packet_length_sensor_->publish_state(length);
 
-  // The upstream implementation indexes bytes 7..14 directly. A known R600 V2.0
-  // report includes shorter packets, so all short packets are ignored safely.
-  if (length < MIN_STATUS_PACKET_LENGTH) {
-    ESP_LOGW(TAG, "Ignoring short notification: expected at least %u bytes, received %u",
-             static_cast<unsigned>(MIN_STATUS_PACKET_LENGTH), length);
+  if (!this->validate_notification_(data, length)) {
     this->set_protocol_error_(true);
     return;
   }
 
-  // All frames documented in the upstream source/captures start with A5 65.
-  if (data[0] != 0xA5 || data[1] != 0x65) {
-    ESP_LOGW(TAG, "Ignoring notification with unknown header: %02X %02X", data[0], data[1]);
+  switch (data[COMMAND_OFFSET]) {
+    case STATUS_COMMAND:
+      this->process_status_notification_(data, length);
+      break;
+    case SETTINGS_STATUS_COMMAND:
+      this->process_settings_notification_(data, length);
+      break;
+    default:
+      // Other valid command families exist in newer stations. They are not a
+      // protocol fault and must not be interpreted as telemetry by offset.
+      ESP_LOGV(TAG, "Ignoring unsupported notification command 0x%02X", data[COMMAND_OFFSET]);
+      this->set_protocol_error_(false);
+      break;
+  }
+}
+
+void AllpowersBLE::process_status_notification_(const uint8_t *data, uint16_t length) {
+  if (length < MIN_STATUS_PACKET_LENGTH) {
+    ESP_LOGW(TAG, "Ignoring short status notification: expected at least %u bytes, received %u",
+             static_cast<unsigned>(MIN_STATUS_PACKET_LENGTH), length);
     this->set_protocol_error_(true);
     return;
   }
@@ -245,12 +317,33 @@ void AllpowersBLE::process_notification_(const uint8_t *data, uint16_t length) {
   if (this->data_valid_binary_sensor_ != nullptr)
     this->data_valid_binary_sensor_->publish_state(true);
   this->publish_controls_available_(this->controls_available_());
-  // protocol_error describes current protocol health rather than a latched
-  // historical fault. Any later valid frame clears transient parse/write
-  // errors; logs retain the original diagnostic details.
+  this->set_protocol_error_(false);
+  this->publish_switch_states_();
+}
+
+void AllpowersBLE::process_settings_notification_(const uint8_t *data, uint16_t length) {
+  if (length < MIN_SETTINGS_PACKET_LENGTH) {
+    ESP_LOGW(TAG, "Ignoring short settings notification: expected at least %u bytes, received %u",
+             static_cast<unsigned>(MIN_SETTINGS_PACKET_LENGTH), length);
+    this->set_protocol_error_(true);
+    return;
+  }
+
+  // Command 0x03 reports the complete settings bitmap and ECO timeout. Store
+  // both raw fields: changing ECO must preserve charging mode, AC mode, car
+  // port, self-use and any reserved bits not exposed by this component.
+  this->settings_flags_ = data[SETTINGS_FLAGS_OFFSET];
+  this->eco_time_ = data[SETTINGS_ECO_TIME_OFFSET];
+  this->have_settings_ = true;
+  this->settings_fresh_ = true;
+  this->last_settings_packet_ms_ = millis();
+
+  this->publish_eco_state_();
+  this->publish_settings_available_(this->settings_available_());
   this->set_protocol_error_(false);
 
-  this->publish_switch_states_();
+  ESP_LOGD(TAG, "Settings: flags=0x%02X, ECO=%s, ECO timeout=%u", this->settings_flags_,
+           (this->settings_flags_ & SETTINGS_ECO_MASK) != 0 ? "ON" : "OFF", this->eco_time_);
 }
 
 void AllpowersBLE::publish_switch_states_() {
@@ -262,9 +355,22 @@ void AllpowersBLE::publish_switch_states_() {
     this->light_switch_->publish_state(this->light_on_);
 }
 
+void AllpowersBLE::publish_eco_state_() {
+  const bool eco_enabled = (this->settings_flags_ & SETTINGS_ECO_MASK) != 0;
+  if (this->eco_mode_binary_sensor_ != nullptr)
+    this->eco_mode_binary_sensor_->publish_state(eco_enabled);
+  if (this->eco_switch_ != nullptr)
+    this->eco_switch_->publish_state(eco_enabled);
+}
+
 bool AllpowersBLE::controls_available_() const {
   return this->node_state == espbt::ClientState::ESTABLISHED && this->write_handle_ != 0 && this->have_status_ &&
          this->data_fresh_;
+}
+
+bool AllpowersBLE::settings_available_() const {
+  return this->node_state == espbt::ClientState::ESTABLISHED && this->write_handle_ != 0 && this->have_settings_ &&
+         this->settings_fresh_;
 }
 
 bool AllpowersBLE::request_output(OutputType output, bool state) {
@@ -309,12 +415,42 @@ bool AllpowersBLE::request_output(OutputType output, bool state) {
   return false;
 }
 
-bool AllpowersBLE::send_control_frame_() {
-  if (this->node_state != espbt::ClientState::ESTABLISHED || this->write_handle_ == 0) {
-    ESP_LOGW(TAG, "Cannot write ALLPOWERS control frame: BLE client is not ready");
+bool AllpowersBLE::request_eco_mode(bool state) {
+  // The settings command contains more than the ECO bit. Refuse the write
+  // until command 0x03 has supplied a fresh complete snapshot, then modify
+  // only bit 0 and preserve every other setting verbatim.
+  if (!this->settings_available_()) {
+    ESP_LOGW(TAG, "Ignoring ECO command: ALLPOWERS settings are unavailable until a settings frame is received");
     return false;
   }
 
+  const bool current_state = (this->settings_flags_ & SETTINGS_ECO_MASK) != 0;
+  if (current_state == state) {
+    // Avoid a redundant write and the confirmation beep produced by the station.
+    this->publish_eco_state_();
+    return true;
+  }
+
+  const uint8_t old_flags = this->settings_flags_;
+  if (state) {
+    this->settings_flags_ |= SETTINGS_ECO_MASK;
+  } else {
+    this->settings_flags_ &= static_cast<uint8_t>(~SETTINGS_ECO_MASK);
+  }
+
+  if (this->send_settings_frame_()) {
+    // Optimistic state is useful for immediate UI feedback. The next command
+    // 0x03 notification remains authoritative and can correct it.
+    this->publish_eco_state_();
+    return true;
+  }
+
+  this->settings_flags_ = old_flags;
+  this->publish_eco_state_();
+  return false;
+}
+
+bool AllpowersBLE::send_control_frame_() {
   // Exact control frame and check-byte calculation from allpowers-ble. The
   // final byte is reproduced from upstream behavior; it is not treated as a
   // generally understood checksum algorithm.
@@ -331,6 +467,28 @@ bool AllpowersBLE::send_control_frame_() {
   if (this->ac_on_)
     frame[8] = static_cast<uint8_t>(frame[8] + 4U);
 
+  return this->write_frame_(frame.data(), frame.size(), "output control");
+}
+
+bool AllpowersBLE::send_settings_frame_() {
+  // Command 0x02 writes the settings bitmap. Byte 8 is the existing ECO
+  // timeout; retaining it is as important as preserving the unrelated bits.
+  std::array<uint8_t, 10> frame{
+      {0xA5, 0x65, 0x00, 0xB1, 0x01, 0x02, 0x02, this->settings_flags_, this->eco_time_, 0x00}};
+  uint8_t checksum = 0;
+  for (size_t index = 0; index < frame.size() - 1; index++)
+    checksum ^= frame[index];
+  frame.back() = checksum;
+
+  return this->write_frame_(frame.data(), frame.size(), "settings");
+}
+
+bool AllpowersBLE::write_frame_(uint8_t *data, size_t length, const char *description) {
+  if (this->node_state != espbt::ClientState::ESTABLISHED || this->write_handle_ == 0) {
+    ESP_LOGW(TAG, "Cannot write ALLPOWERS %s frame: BLE client is not ready", description);
+    return false;
+  }
+
   esp_gatt_write_type_t write_type;
   if ((this->write_properties_ & ESP_GATT_CHAR_PROP_BIT_WRITE) != 0) {
     write_type = ESP_GATT_WRITE_TYPE_RSP;
@@ -342,10 +500,10 @@ bool AllpowersBLE::send_control_frame_() {
     return false;
   }
 
-  ESP_LOGD(TAG, "Writing control frame: %s", format_hex_pretty(frame.data(), frame.size()).c_str());
+  ESP_LOGD(TAG, "Writing %s frame: %s", description, format_hex_pretty(data, length).c_str());
   const esp_err_t result =
       esp_ble_gattc_write_char(this->parent()->get_gattc_if(), this->parent()->get_conn_id(), this->write_handle_,
-                               static_cast<uint16_t>(frame.size()), frame.data(), write_type, ESP_GATT_AUTH_REQ_NONE);
+                               static_cast<uint16_t>(length), data, write_type, ESP_GATT_AUTH_REQ_NONE);
   if (result != ESP_OK) {
     ESP_LOGE(TAG, "esp_ble_gattc_write_char failed: %s", esp_err_to_name(result));
     this->set_protocol_error_(true);
@@ -387,9 +545,22 @@ void AllpowersBLE::invalidate_data_entities_() {
     this->discharging_binary_sensor_->invalidate_state();
 }
 
+void AllpowersBLE::invalidate_settings_entities_() {
+  // ESPHome switches cannot publish unavailable. The confirmed binary sensor
+  // is invalidated and Settings Available gates both firmware writes and the
+  // optional Home Assistant wrapper.
+  if (this->eco_mode_binary_sensor_ != nullptr)
+    this->eco_mode_binary_sensor_->invalidate_state();
+}
+
 void AllpowersBLE::publish_controls_available_(bool state) {
   if (this->controls_available_binary_sensor_ != nullptr)
     this->controls_available_binary_sensor_->publish_state(state);
+}
+
+void AllpowersBLE::publish_settings_available_(bool state) {
+  if (this->settings_available_binary_sensor_ != nullptr)
+    this->settings_available_binary_sensor_->publish_state(state);
 }
 
 void AllpowersBLE::set_protocol_error_(bool state) {
@@ -403,6 +574,14 @@ void AllpowersBLESwitch::write_state(bool state) {
     return;
   }
   this->parent_->request_output(this->output_type_, state);
+}
+
+void AllpowersBLEEcoSwitch::write_state(bool state) {
+  if (this->parent_ == nullptr) {
+    ESP_LOGE(TAG, "ALLPOWERS ECO switch has no parent component");
+    return;
+  }
+  this->parent_->request_eco_mode(state);
 }
 
 }  // namespace esphome::allpowers_ble
