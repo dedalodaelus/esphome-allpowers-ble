@@ -268,6 +268,21 @@ text_sensor:
     entity_category: diagnostic
     update_interval: never
 
+  # Reported by the power station in command 0x03. These are not the ESPHome
+  # or ESP32 firmware versions of the BLE gateway.
+  - platform: allpowers_ble
+    allpowers_ble_id: ${allpowers_id}
+
+    hardware_version:
+      id: ${allpowers_id}_hardware_version
+      name: "Hardware Version"
+      device_id: ${allpowers_id}_device
+
+    firmware_version:
+      id: ${allpowers_id}_firmware_version
+      name: "Firmware Version"
+      device_id: ${allpowers_id}_device
+
 select:
   - platform: allpowers_ble
     allpowers_ble_id: ${allpowers_id}
