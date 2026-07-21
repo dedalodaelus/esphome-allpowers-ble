@@ -279,6 +279,14 @@ select:
       name: "ECO Shutdown Time"
       device_id: ${allpowers_id}_device
 
+    # Work mode uses bits 1-2 of the same settings bitmap. The component keeps
+    # every unrelated bit and the ECO timeout unchanged when this value changes.
+    work_mode:
+      id: ${allpowers_id}_work_mode
+      name: "Work Mode"
+      device_id: ${allpowers_id}_device
+      icon: mdi:speedometer
+
 switch:
   # Desired-state control:
   # ON  -> actively search until connected and reconnect after link loss.
