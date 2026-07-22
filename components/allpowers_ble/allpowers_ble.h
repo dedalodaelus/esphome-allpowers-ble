@@ -13,13 +13,16 @@
 
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/ble_client/ble_client.h"
+#include "esphome/components/button/button.h"
 #include "esphome/components/esp32_ble_tracker/esp32_ble_tracker.h"
+#include "esphome/components/number/number.h"
 #include "esphome/components/select/select.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
 #include "esphome/components/text/text.h"
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/core/component.h"
+#include "esphome/core/preferences.h"
 
 #ifdef USE_ESP32
 #include <esp_gattc_api.h>
@@ -33,6 +36,9 @@ enum class OutputType : uint8_t { AC = 0, DC = 1, LIGHT = 2 };
 class AllpowersBLESwitch;
 class AllpowersBLEEcoSwitch;
 class AllpowersBLECarChargerSwitch;
+class AllpowersBLESettingsKeepaliveSwitch;
+class AllpowersBLESettingsKeepaliveIntervalNumber;
+class AllpowersBLESettingsKeepaliveButton;
 class AllpowersBLEEcoShutdownTimeSelect;
 class AllpowersBLEWorkModeSelect;
 class AllpowersBLEDeviceNameText;
@@ -51,8 +57,11 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   void set_stale_timeout(uint32_t timeout_ms) { this->stale_timeout_ms_ = timeout_ms; }
   void set_keepalive_interval(uint32_t interval_ms) { this->keepalive_interval_ms_ = interval_ms; }
   void set_watchdog_timeout(uint32_t timeout_ms) { this->watchdog_timeout_ms_ = timeout_ms; }
-  void set_settings_keepalive_enabled(bool enabled) { this->settings_keepalive_enabled_ = enabled; }
-  void set_settings_keepalive_interval(uint32_t interval_ms) { this->settings_keepalive_interval_ms_ = interval_ms; }
+  void set_settings_keepalive_enabled(bool enabled);
+  void set_settings_keepalive_interval(uint32_t interval_ms);
+  bool get_settings_keepalive_enabled() const { return this->settings_keepalive_enabled_; }
+  uint32_t get_settings_keepalive_interval() const { return this->settings_keepalive_interval_ms_; }
+  bool send_settings_keepalive_now();
   void set_experimental_device_name_enabled(bool enabled) { this->experimental_device_name_enabled_ = enabled; }
 
   void set_soc_sensor(sensor::Sensor *sensor) { this->soc_sensor_ = sensor; }
@@ -220,6 +229,7 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   const char *forced_reconnect_reason_{nullptr};
   bool disconnect_requested_{false};
   bool device_name_query_active_{false};
+  bool initial_settings_keepalive_pending_{false};
   uint8_t device_name_query_attempts_{0};
   uint32_t next_device_name_query_ms_{0};
 
@@ -286,6 +296,41 @@ class AllpowersBLECarChargerSwitch final : public switch_::Switch {
   void write_state(bool state) override;
 
   AllpowersBLE *parent_{nullptr};
+};
+
+class AllpowersBLESettingsKeepaliveSwitch final : public switch_::Switch, public Component {
+ public:
+  explicit AllpowersBLESettingsKeepaliveSwitch(AllpowersBLE *parent) : parent_(parent) {}
+
+  void setup() override;
+
+ protected:
+  void write_state(bool state) override;
+
+  AllpowersBLE *parent_;
+};
+
+class AllpowersBLESettingsKeepaliveIntervalNumber final : public number::Number, public Component {
+ public:
+  explicit AllpowersBLESettingsKeepaliveIntervalNumber(AllpowersBLE *parent) : parent_(parent) {}
+
+  void setup() override;
+
+ protected:
+  void control(float value) override;
+
+  AllpowersBLE *parent_;
+  ESPPreferenceObject preference_;
+};
+
+class AllpowersBLESettingsKeepaliveButton final : public button::Button {
+ public:
+  explicit AllpowersBLESettingsKeepaliveButton(AllpowersBLE *parent) : parent_(parent) {}
+
+ protected:
+  void press_action() override;
+
+  AllpowersBLE *parent_;
 };
 
 class AllpowersBLEEcoShutdownTimeSelect final : public select::Select {

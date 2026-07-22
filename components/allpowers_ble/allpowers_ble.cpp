@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <inttypes.h>
 #include <limits>
 #include <string>
@@ -25,6 +26,9 @@ namespace esphome::allpowers_ble {
 static const char *const TAG = "allpowers_ble";
 static constexpr std::array<uint8_t, 4> ECO_SHUTDOWN_HOURS{{1, 2, 4, 6}};
 static constexpr std::array<uint8_t, 3> WORK_MODES{{0, 1, 2}};
+static constexpr float MIN_SETTINGS_KEEPALIVE_MINUTES = 1.0f;
+static constexpr float MAX_SETTINGS_KEEPALIVE_MINUTES = 9.0f;
+static constexpr float MILLISECONDS_PER_MINUTE = 60000.0f;
 
 void AllpowersBLE::setup() {
   if (this->connected_binary_sensor_ != nullptr)
@@ -49,6 +53,22 @@ void AllpowersBLE::dump_config() {
   ESP_LOGCONFIG(TAG, "  Settings keepalive: %s", YESNO(this->settings_keepalive_enabled_));
   ESP_LOGCONFIG(TAG, "  Settings keepalive interval: %" PRIu32 " ms", this->settings_keepalive_interval_ms_);
   ESP_LOGCONFIG(TAG, "  Experimental device-name command: %s", YESNO(this->experimental_device_name_enabled_));
+}
+
+void AllpowersBLE::set_settings_keepalive_enabled(bool enabled) {
+  if (this->settings_keepalive_enabled_ == enabled)
+    return;
+  this->settings_keepalive_enabled_ = enabled;
+  if (!enabled)
+    this->initial_settings_keepalive_pending_ = false;
+  this->last_settings_keepalive_ms_ = millis();
+}
+
+void AllpowersBLE::set_settings_keepalive_interval(uint32_t interval_ms) {
+  if (this->settings_keepalive_interval_ms_ == interval_ms)
+    return;
+  this->settings_keepalive_interval_ms_ = interval_ms;
+  this->last_settings_keepalive_ms_ = millis();
 }
 
 void AllpowersBLE::loop() {
@@ -90,6 +110,23 @@ void AllpowersBLE::loop() {
 
   if (!this->connection_health_active_)
     return;
+
+  // A station may already be close to its inactivity cutoff before ESPHome
+  // establishes GATT. Send the first opt-in settings keepalive as soon as this
+  // connection has supplied a real command-0x03 snapshot instead of waiting a
+  // full periodic interval. Defer the write to loop() rather than issuing it
+  // from the ESP-IDF notification callback.
+  if (this->initial_settings_keepalive_pending_ && this->settings_keepalive_enabled_ && this->have_settings_snapshot_) {
+    this->initial_settings_keepalive_pending_ = false;
+    if (!this->send_settings_frame_("initial settings keepalive")) {
+      this->request_forced_reconnect_("initial settings keepalive could not be queued");
+      return;
+    }
+    this->last_status_request_ms_ = now;
+    if (this->device_name_query_active_)
+      this->next_device_name_query_ms_ = now + DEVICE_NAME_QUERY_INITIAL_DELAY_MS;
+    return;
+  }
 
   // The initial status request and optional device-name queries both use FFF2.
   // Space them so writes are not submitted back-to-back during GATT setup.
@@ -172,6 +209,7 @@ void AllpowersBLE::reset_connection_state_() {
   this->forced_reconnect_reason_ = nullptr;
   this->disconnect_requested_ = false;
   this->device_name_query_active_ = false;
+  this->initial_settings_keepalive_pending_ = false;
   this->device_name_query_attempts_ = 0;
   this->next_device_name_query_ms_ = 0;
   if (this->connected_binary_sensor_ != nullptr)
@@ -804,12 +842,37 @@ void AllpowersBLE::start_connection_health_() {
   this->last_protocol_packet_ms_ = now;
   this->last_status_request_ms_ = now;
   this->last_settings_keepalive_ms_ = now;
+  this->initial_settings_keepalive_pending_ = this->settings_keepalive_enabled_;
 
   // Request the first status broadcast immediately after notification setup.
   // Defer forced disconnect to loop() if the ESP-IDF write cannot be queued,
   // avoiding GATT teardown from inside the registration callback.
   if (!this->send_status_request_())
     this->schedule_forced_reconnect_("initial status request could not be queued");
+}
+
+bool AllpowersBLE::send_settings_keepalive_now() {
+  if (this->node_state != espbt::ClientState::ESTABLISHED || this->disconnect_requested_ || this->write_handle_ == 0) {
+    ESP_LOGW(TAG, "Cannot send settings keepalive now: BLE client is not ready");
+    return false;
+  }
+  if (!this->have_settings_snapshot_) {
+    ESP_LOGW(TAG, "Cannot send settings keepalive now: no settings snapshot has been received in this connection");
+    return false;
+  }
+
+  this->initial_settings_keepalive_pending_ = false;
+  if (!this->send_settings_frame_("manual settings keepalive")) {
+    this->schedule_forced_reconnect_("manual settings keepalive could not be queued");
+    return false;
+  }
+
+  // send_settings_frame_ resets this timer when automatic keepalive is on.
+  // Assign it unconditionally so a later enable starts from this manual send.
+  const uint32_t now = millis();
+  this->last_settings_keepalive_ms_ = now;
+  this->last_status_request_ms_ = now;
+  return true;
 }
 
 void AllpowersBLE::schedule_forced_reconnect_(const char *reason) {
@@ -999,6 +1062,41 @@ void AllpowersBLECarChargerSwitch::write_state(bool state) {
   }
   this->parent_->request_car_charger(state);
 }
+
+void AllpowersBLESettingsKeepaliveSwitch::setup() {
+  const optional<bool> restored_state = this->get_initial_state();
+  const bool enabled = restored_state.value_or(this->parent_->get_settings_keepalive_enabled());
+  this->parent_->set_settings_keepalive_enabled(enabled);
+  this->publish_state(enabled);
+}
+
+void AllpowersBLESettingsKeepaliveSwitch::write_state(bool state) {
+  this->parent_->set_settings_keepalive_enabled(state);
+  this->publish_state(state);
+}
+
+void AllpowersBLESettingsKeepaliveIntervalNumber::setup() {
+  this->preference_ = this->make_entity_preference<float>();
+
+  float minutes;
+  if (!this->preference_.load(&minutes) || !std::isfinite(minutes) || minutes < MIN_SETTINGS_KEEPALIVE_MINUTES ||
+      minutes > MAX_SETTINGS_KEEPALIVE_MINUTES) {
+    minutes = static_cast<float>(this->parent_->get_settings_keepalive_interval()) / MILLISECONDS_PER_MINUTE;
+  }
+
+  this->parent_->set_settings_keepalive_interval(static_cast<uint32_t>(minutes * MILLISECONDS_PER_MINUTE));
+  this->publish_state(minutes);
+}
+
+void AllpowersBLESettingsKeepaliveIntervalNumber::control(float value) {
+  if (this->has_state() && value == this->state)
+    return;
+  this->parent_->set_settings_keepalive_interval(static_cast<uint32_t>(value * MILLISECONDS_PER_MINUTE));
+  this->preference_.save(&value);
+  this->publish_state(value);
+}
+
+void AllpowersBLESettingsKeepaliveButton::press_action() { this->parent_->send_settings_keepalive_now(); }
 
 void AllpowersBLEEcoShutdownTimeSelect::publish_hours(uint8_t hours) {
   const auto option = std::find(ECO_SHUTDOWN_HOURS.begin(), ECO_SHUTDOWN_HOURS.end(), hours);
