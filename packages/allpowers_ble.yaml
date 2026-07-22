@@ -276,13 +276,6 @@ text_sensor:
   # or ESP32 firmware versions of the BLE gateway.
   - platform: allpowers_ble
     allpowers_ble_id: ${allpowers_id}
-
-    # Non-optimistic: the displayed value changes only after a valid command-
-    # 0x35 response. The parent rejects writes while the opt-in above is false.
-    device_name:
-      id: ${allpowers_id}_device_name
-      name: "Bluetooth Name (Experimental)"
-      device_id: ${allpowers_id}_device
     hardware_version:
       id: ${allpowers_id}_hardware_version
       name: "Hardware Version"
@@ -292,6 +285,18 @@ text_sensor:
       id: ${allpowers_id}_firmware_version
       name: "Firmware Version"
       device_id: ${allpowers_id}_device
+
+text:
+  - platform: allpowers_ble
+    allpowers_ble_id: ${allpowers_id}
+
+    # Non-optimistic: the displayed value changes only after a valid command-
+    # 0x35 response. The parent rejects writes while the opt-in above is false.
+    device_name:
+      id: ${allpowers_id}_device_name
+      name: "Bluetooth Name (Experimental)"
+      device_id: ${allpowers_id}_device
+      disabled_by_default: true
 
 select:
   - platform: allpowers_ble
