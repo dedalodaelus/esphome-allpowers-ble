@@ -7,12 +7,14 @@
 import esphome.codegen as cg
 from esphome.components import switch
 import esphome.config_validation as cv
+from esphome.const import ENTITY_CATEGORY_CONFIG, ICON_TIMER
 
 from . import (
     CONF_ALLPOWERS_BLE_ID,
     AllpowersBLE,
     AllpowersBLECarChargerSwitch,
     AllpowersBLEEcoSwitch,
+    AllpowersBLESettingsKeepaliveSwitch,
     AllpowersBLESwitch,
     OutputType,
 )
@@ -22,6 +24,7 @@ CONF_CAR_CHARGER = "car_charger"
 CONF_DC_OUTPUT = "dc_output"
 CONF_ECO_MODE = "eco_mode"
 CONF_LIGHT = "light"
+CONF_SETTINGS_KEEPALIVE = "settings_keepalive"
 
 # OutputType selects one bit in the combined protocol command; the named
 # parent setter also lets the C++ component publish confirmed/optimistic state
@@ -60,6 +63,13 @@ CONFIG_SCHEMA = cv.Schema(
             block_inverted=True,
             default_restore_mode="DISABLED",
         ),
+        cv.Optional(CONF_SETTINGS_KEEPALIVE): switch.switch_schema(
+            AllpowersBLESettingsKeepaliveSwitch,
+            block_inverted=True,
+            default_restore_mode="RESTORE_DEFAULT_OFF",
+            entity_category=ENTITY_CATEGORY_CONFIG,
+            icon=ICON_TIMER,
+        ),
     }
 )
 
@@ -84,3 +94,7 @@ async def to_code(config):
         var = await switch.new_switch(conf)
         cg.add(var.set_parent(parent))
         cg.add(parent.set_car_charger_switch(var))
+
+    if conf := config.get(CONF_SETTINGS_KEEPALIVE):
+        var = await switch.new_switch(conf, parent)
+        await cg.register_component(var, conf)

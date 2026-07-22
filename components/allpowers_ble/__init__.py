@@ -7,7 +7,9 @@
 import esphome.codegen as cg
 from esphome.components import (
     ble_client,
+    button as button_,
     esp32_ble_tracker,
+    number as number_,
     select as select_,
     switch as switch_,
     text as text_,
@@ -15,7 +17,16 @@ from esphome.components import (
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
 
-AUTO_LOAD = ["sensor", "binary_sensor", "switch", "select", "text", "text_sensor"]
+AUTO_LOAD = [
+    "sensor",
+    "binary_sensor",
+    "button",
+    "switch",
+    "number",
+    "select",
+    "text",
+    "text_sensor",
+]
 DEPENDENCIES = ["ble_client"]
 MULTI_CONF = True
 
@@ -41,6 +52,15 @@ AllpowersBLEEcoSwitch = allpowers_ble_ns.class_("AllpowersBLEEcoSwitch", switch_
 AllpowersBLECarChargerSwitch = allpowers_ble_ns.class_(
     "AllpowersBLECarChargerSwitch", switch_.Switch
 )
+AllpowersBLESettingsKeepaliveSwitch = allpowers_ble_ns.class_(
+    "AllpowersBLESettingsKeepaliveSwitch", switch_.Switch, cg.Component
+)
+AllpowersBLESettingsKeepaliveIntervalNumber = allpowers_ble_ns.class_(
+    "AllpowersBLESettingsKeepaliveIntervalNumber", number_.Number, cg.Component
+)
+AllpowersBLESettingsKeepaliveButton = allpowers_ble_ns.class_(
+    "AllpowersBLESettingsKeepaliveButton", button_.Button
+)
 AllpowersBLEEcoShutdownTimeSelect = allpowers_ble_ns.class_(
     "AllpowersBLEEcoShutdownTimeSelect", select_.Select
 )
@@ -63,8 +83,9 @@ def _validate_connection_health(config):
         raise cv.Invalid("watchdog_timeout must be at least 10s")
     if keepalive_ms >= watchdog_ms:
         raise cv.Invalid("keepalive_interval must be shorter than watchdog_timeout")
-    if config[CONF_SETTINGS_KEEPALIVE_INTERVAL].total_milliseconds < 60000:
-        raise cv.Invalid("settings_keepalive_interval must be at least 1min")
+    settings_keepalive_ms = config[CONF_SETTINGS_KEEPALIVE_INTERVAL].total_milliseconds
+    if not 60000 <= settings_keepalive_ms <= 540000:
+        raise cv.Invalid("settings_keepalive_interval must be between 1min and 9min")
     return config
 
 
