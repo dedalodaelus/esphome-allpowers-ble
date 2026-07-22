@@ -22,6 +22,8 @@ MULTI_CONF = True
 CONF_ALLPOWERS_BLE_ID = "allpowers_ble_id"
 CONF_SERVICE_UUID = "service_uuid"
 CONF_STALE_TIMEOUT = "stale_timeout"
+CONF_KEEPALIVE_INTERVAL = "keepalive_interval"
+CONF_WATCHDOG_TIMEOUT = "watchdog_timeout"
 CONF_ENABLE_EXPERIMENTAL_DEVICE_NAME = "enable_experimental_device_name"
 
 allpowers_ble_ns = cg.esphome_ns.namespace("allpowers_ble")
@@ -47,7 +49,22 @@ AllpowersBLEDeviceNameText = allpowers_ble_ns.class_(
     "AllpowersBLEDeviceNameText", text_.Text
 )
 
-CONFIG_SCHEMA = (
+
+def _validate_connection_health(config):
+    """Keep the refresh cadence below the forced-reconnect threshold."""
+
+    keepalive_ms = config[CONF_KEEPALIVE_INTERVAL].total_milliseconds
+    watchdog_ms = config[CONF_WATCHDOG_TIMEOUT].total_milliseconds
+    if keepalive_ms < 5000:
+        raise cv.Invalid("keepalive_interval must be at least 5s")
+    if watchdog_ms < 10000:
+        raise cv.Invalid("watchdog_timeout must be at least 10s")
+    if keepalive_ms >= watchdog_ms:
+        raise cv.Invalid("keepalive_interval must be shorter than watchdog_timeout")
+    return config
+
+
+CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(AllpowersBLE),
@@ -56,12 +73,19 @@ CONFIG_SCHEMA = (
                 CONF_STALE_TIMEOUT, default="30s"
             ): cv.positive_time_period_milliseconds,
             cv.Optional(
+                CONF_KEEPALIVE_INTERVAL, default="20s"
+            ): cv.positive_time_period_milliseconds,
+            cv.Optional(
+                CONF_WATCHDOG_TIMEOUT, default="45s"
+            ): cv.positive_time_period_milliseconds,
+            cv.Optional(
                 CONF_ENABLE_EXPERIMENTAL_DEVICE_NAME, default=False
             ): cv.boolean,
         }
     )
     .extend(cv.COMPONENT_SCHEMA)
-    .extend(ble_client.BLE_CLIENT_SCHEMA)
+    .extend(ble_client.BLE_CLIENT_SCHEMA),
+    _validate_connection_health,
 )
 
 
@@ -89,6 +113,10 @@ async def to_code(config):
 
     _set_service_uuid(var, config[CONF_SERVICE_UUID])
     cg.add(var.set_stale_timeout(config[CONF_STALE_TIMEOUT].total_milliseconds))
+    cg.add(
+        var.set_keepalive_interval(config[CONF_KEEPALIVE_INTERVAL].total_milliseconds)
+    )
+    cg.add(var.set_watchdog_timeout(config[CONF_WATCHDOG_TIMEOUT].total_milliseconds))
     cg.add(
         var.set_experimental_device_name_enabled(
             config[CONF_ENABLE_EXPERIMENTAL_DEVICE_NAME]
