@@ -18,6 +18,12 @@ defaults:
   # must be longer than the keepalive interval.
   allpowers_keepalive_interval: 20s
   allpowers_watchdog_timeout: 45s
+  # Experimental workaround for R600 firmware that may close GATT after about
+  # 10 minutes even while status traffic continues. When enabled, resend the
+  # last settings snapshot every 9 minutes. Accepted settings writes may make
+  # the station beep, so this remains opt-in.
+  allpowers_enable_settings_keepalive: "false"
+  allpowers_settings_keepalive_interval: 9min
   # Command 0x35 was found in the official app but is only enabled there for
   # SOLIX/VOLIX P1800. Leave false unless the exact station is being tested.
   allpowers_enable_experimental_device_name: "false"
@@ -191,6 +197,8 @@ allpowers_ble:
     stale_timeout: ${allpowers_stale_timeout}
     keepalive_interval: ${allpowers_keepalive_interval}
     watchdog_timeout: ${allpowers_watchdog_timeout}
+    enable_settings_keepalive: ${allpowers_enable_settings_keepalive}
+    settings_keepalive_interval: ${allpowers_settings_keepalive_interval}
     enable_experimental_device_name: ${allpowers_enable_experimental_device_name}
 
 sensor:
