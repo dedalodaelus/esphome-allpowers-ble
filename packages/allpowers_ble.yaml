@@ -90,6 +90,15 @@ esp32_ble_tracker:
     interval: ${allpowers_scan_interval}
     window: ${allpowers_scan_window}
     active: ${allpowers_scan_active}
+  # Capture the name passively from advertisements. This remains available on
+  # stations where the experimental command-0x35 rename path is not enabled.
+  on_ble_advertise:
+    - mac_address: ${allpowers_mac}
+      then:
+        - lambda: |-
+            if (!x.get_name().empty()) {
+              id(${allpowers_id}_ble_advertised_name).publish_state(x.get_name());
+            }
 
 ble_client:
   - id: ${allpowers_id}_ble_client
@@ -261,6 +270,16 @@ binary_sensor:
       entity_category: diagnostic
 
 text_sensor:
+  # Read-only name announced by the station during active BLE scanning. Unlike
+  # the optional text control below, publishing it never writes to the station.
+  - platform: template
+    id: ${allpowers_id}_ble_advertised_name
+    name: "BLE Advertised Name"
+    device_id: ${allpowers_id}_device
+    icon: mdi:bluetooth
+    entity_category: diagnostic
+    update_interval: never
+
   # Desired-policy summary for humans. It is not a fourth source of truth:
   # Disabled means retries are disabled, Searching means enabled but not
   # connected, and Connected is set by the BLE client's on_connect callback.
@@ -294,7 +313,7 @@ text:
     # 0x35 response. The parent rejects writes while the opt-in above is false.
     device_name:
       id: ${allpowers_id}_device_name
-      name: "Bluetooth Name (Experimental)"
+      name: "Set Bluetooth Name (Experimental)"
       device_id: ${allpowers_id}_device
       disabled_by_default: true
 
