@@ -13,6 +13,7 @@ from esphome.components import (
     select as select_,
     switch as switch_,
     text as text_,
+    text_sensor as text_sensor_,
 )
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
@@ -60,6 +61,9 @@ AllpowersBLESettingsKeepaliveIntervalNumber = allpowers_ble_ns.class_(
 )
 AllpowersBLESettingsKeepaliveButton = allpowers_ble_ns.class_(
     "AllpowersBLESettingsKeepaliveButton", button_.Button
+)
+AllpowersBLEStationNameTextSensor = allpowers_ble_ns.class_(
+    "AllpowersBLEStationNameTextSensor", text_sensor_.TextSensor, cg.Component
 )
 AllpowersBLEEcoShutdownTimeSelect = allpowers_ble_ns.class_(
     "AllpowersBLEEcoShutdownTimeSelect", select_.Select
