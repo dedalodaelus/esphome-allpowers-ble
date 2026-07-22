@@ -14,6 +14,7 @@ WORK_MODES = (0, 1, 2)
 CAR_CHARGER_MASK = 0x10
 DEVICE_NAME_COMMAND = 0x35
 MAX_DEVICE_NAME_LENGTH = 96
+STATUS_REQUEST_COMMAND = bytes.fromhex("A5 65 B1 00 01 06 01 00 00 00 00 00")
 
 
 @dataclass(frozen=True)
@@ -170,6 +171,23 @@ def parse_device_name(packet: bytes) -> str:
     if packet[6] != DEVICE_NAME_COMMAND or not 1 <= packet[5] <= MAX_DEVICE_NAME_LENGTH:
         raise ValueError("not a device-name response")
     return packet[7:-1].decode("utf-8")
+
+
+def connection_health_action(
+    *,
+    now_ms: int,
+    last_packet_ms: int,
+    last_request_ms: int,
+    keepalive_ms: int = 20_000,
+    watchdog_ms: int = 45_000,
+) -> str:
+    """Model the watchdog-before-keepalive ordering used by the component."""
+
+    if now_ms - last_packet_ms >= watchdog_ms:
+        return "disconnect"
+    if now_ms - last_request_ms >= keepalive_ms:
+        return "request_status"
+    return "wait"
 
 
 def make_eco_mode_frame(
@@ -391,6 +409,33 @@ def test_device_name_response_and_limits() -> None:
         raise AssertionError("device name above 96 UTF-8 bytes was accepted")
 
 
+def test_status_request_and_connection_health_ordering() -> None:
+    """Lock the observed request bytes and prefer reconnect at the deadline."""
+
+    assert STATUS_REQUEST_COMMAND.hex().upper() == "A565B1000106010000000000"
+    assert xor_bytes(STATUS_REQUEST_COMMAND) != 0
+    assert (
+        connection_health_action(now_ms=19_999, last_packet_ms=0, last_request_ms=0)
+        == "wait"
+    )
+    assert (
+        connection_health_action(now_ms=20_000, last_packet_ms=0, last_request_ms=0)
+        == "request_status"
+    )
+    assert (
+        connection_health_action(
+            now_ms=40_000, last_packet_ms=30_000, last_request_ms=20_000
+        )
+        == "request_status"
+    )
+    assert (
+        connection_health_action(
+            now_ms=45_000, last_packet_ms=0, last_request_ms=20_000
+        )
+        == "disconnect"
+    )
+
+
 def test_unsupported_work_mode_is_rejected() -> None:
     """Reject the reserved two-bit value and values outside the field."""
 
@@ -415,5 +460,6 @@ if __name__ == "__main__":
     test_car_charger_preserves_other_settings()
     test_device_name_query_and_utf8_update()
     test_device_name_response_and_limits()
+    test_status_request_and_connection_health_ordering()
     test_unsupported_work_mode_is_rejected()
     print("Protocol tests passed")
