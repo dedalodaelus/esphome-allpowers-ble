@@ -15,6 +15,7 @@ CAR_CHARGER_MASK = 0x10
 DEVICE_NAME_COMMAND = 0x35
 MAX_DEVICE_NAME_LENGTH = 96
 DEVICE_NAME_QUERY_MAX_ATTEMPTS = 3
+SETTINGS_KEEPALIVE_INTERVAL_MS = 9 * 60 * 1000
 STATUS_REQUEST_COMMAND = bytes.fromhex("A5 65 B1 00 01 06 01 00 00 00 00 00")
 
 
@@ -201,6 +202,20 @@ def device_name_query_action(
     if now_ms >= next_query_ms:
         return "query"
     return "wait"
+
+
+def settings_keepalive_action(
+    *, enabled: bool, snapshot_received: bool, now_ms: int, last_keepalive_ms: int
+) -> str:
+    """Model the opt-in R600 settings keepalive gate used by the component."""
+
+    if not enabled:
+        return "disabled"
+    if now_ms - last_keepalive_ms < SETTINGS_KEEPALIVE_INTERVAL_MS:
+        return "wait"
+    if not snapshot_received:
+        return "skip_no_snapshot"
+    return "resend_settings"
 
 
 def make_eco_mode_frame(
@@ -490,6 +505,48 @@ def test_status_request_and_connection_health_ordering() -> None:
     )
 
 
+def test_settings_keepalive_is_opt_in_and_snapshot_gated() -> None:
+    """Do not invent settings and use the nine-minute default only when enabled."""
+
+    assert SETTINGS_KEEPALIVE_INTERVAL_MS == 540_000
+    assert (
+        settings_keepalive_action(
+            enabled=False,
+            snapshot_received=True,
+            now_ms=SETTINGS_KEEPALIVE_INTERVAL_MS,
+            last_keepalive_ms=0,
+        )
+        == "disabled"
+    )
+    assert (
+        settings_keepalive_action(
+            enabled=True,
+            snapshot_received=True,
+            now_ms=SETTINGS_KEEPALIVE_INTERVAL_MS - 1,
+            last_keepalive_ms=0,
+        )
+        == "wait"
+    )
+    assert (
+        settings_keepalive_action(
+            enabled=True,
+            snapshot_received=False,
+            now_ms=SETTINGS_KEEPALIVE_INTERVAL_MS,
+            last_keepalive_ms=0,
+        )
+        == "skip_no_snapshot"
+    )
+    assert (
+        settings_keepalive_action(
+            enabled=True,
+            snapshot_received=True,
+            now_ms=SETTINGS_KEEPALIVE_INTERVAL_MS,
+            last_keepalive_ms=0,
+        )
+        == "resend_settings"
+    )
+
+
 def test_unsupported_work_mode_is_rejected() -> None:
     """Reject the reserved two-bit value and values outside the field."""
 
@@ -516,5 +573,6 @@ if __name__ == "__main__":
     test_device_name_response_and_limits()
     test_device_name_query_retry_policy()
     test_status_request_and_connection_health_ordering()
+    test_settings_keepalive_is_opt_in_and_snapshot_gated()
     test_unsupported_work_mode_is_rejected()
     print("Protocol tests passed")
