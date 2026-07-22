@@ -46,6 +46,8 @@ void AllpowersBLE::dump_config() {
   ESP_LOGCONFIG(TAG, "  Stale timeout: %" PRIu32 " ms", this->stale_timeout_ms_);
   ESP_LOGCONFIG(TAG, "  Status keepalive interval: %" PRIu32 " ms", this->keepalive_interval_ms_);
   ESP_LOGCONFIG(TAG, "  Connection watchdog timeout: %" PRIu32 " ms", this->watchdog_timeout_ms_);
+  ESP_LOGCONFIG(TAG, "  Settings keepalive: %s", YESNO(this->settings_keepalive_enabled_));
+  ESP_LOGCONFIG(TAG, "  Settings keepalive interval: %" PRIu32 " ms", this->settings_keepalive_interval_ms_);
   ESP_LOGCONFIG(TAG, "  Experimental device-name command: %s", YESNO(this->experimental_device_name_enabled_));
 }
 
@@ -114,6 +116,29 @@ void AllpowersBLE::loop() {
     return;
   }
 
+  // Some R600 firmware appears to close an otherwise healthy GATT session
+  // after roughly ten minutes unless it receives a control/settings command.
+  // The ordinary status request above does not reset that station-side timer.
+  // When explicitly enabled, resend the last complete settings snapshot just
+  // before the observed cutoff. The snapshot is learned from command 0x03 and
+  // is never manufactured from defaults.
+  if (this->settings_keepalive_enabled_ &&
+      now - this->last_settings_keepalive_ms_ >= this->settings_keepalive_interval_ms_) {
+    this->last_settings_keepalive_ms_ = now;
+    if (!this->have_settings_snapshot_) {
+      ESP_LOGW(TAG, "Skipping settings keepalive: no settings snapshot has been received in this connection");
+    } else if (!this->send_settings_frame_("settings keepalive")) {
+      this->request_forced_reconnect_("settings keepalive could not be queued");
+      return;
+    } else {
+      // Avoid submitting the periodic status request back-to-back when both
+      // intervals expire in the same loop iteration (9 minutes is exactly 27
+      // times the default 20-second status cadence).
+      this->last_status_request_ms_ = now;
+      return;
+    }
+  }
+
   // This observed request asks the station to resume its periodic status
   // broadcast. Sending it on a fixed cadence is cheaper than reconnecting and
   // mirrors the connection-health behavior independently implemented here
@@ -137,9 +162,11 @@ void AllpowersBLE::reset_connection_state_() {
   this->last_valid_packet_ms_ = 0;
   this->have_settings_ = false;
   this->settings_fresh_ = false;
+  this->have_settings_snapshot_ = false;
   this->last_settings_packet_ms_ = 0;
   this->last_protocol_packet_ms_ = 0;
   this->last_status_request_ms_ = 0;
+  this->last_settings_keepalive_ms_ = 0;
   this->connection_health_active_ = false;
   this->forced_reconnect_pending_ = false;
   this->forced_reconnect_reason_ = nullptr;
@@ -494,6 +521,7 @@ void AllpowersBLE::process_settings_notification_(const uint8_t *data, uint16_t 
   const std::string firmware_version = format_version_(data[SETTINGS_FIRMWARE_VERSION_OFFSET]);
   this->have_settings_ = true;
   this->settings_fresh_ = true;
+  this->have_settings_snapshot_ = true;
   this->last_settings_packet_ms_ = millis();
 
   this->publish_settings_states_();
@@ -775,6 +803,7 @@ void AllpowersBLE::start_connection_health_() {
   this->disconnect_requested_ = false;
   this->last_protocol_packet_ms_ = now;
   this->last_status_request_ms_ = now;
+  this->last_settings_keepalive_ms_ = now;
 
   // Request the first status broadcast immediately after notification setup.
   // Defer forced disconnect to loop() if the ESP-IDF write cannot be queued,
@@ -836,10 +865,13 @@ bool AllpowersBLE::send_control_frame_() {
   if (this->ac_on_)
     frame[8] = static_cast<uint8_t>(frame[8] + 4U);
 
-  return this->write_frame_(frame.data(), frame.size(), "output control");
+  const bool queued = this->write_frame_(frame.data(), frame.size(), "output control");
+  if (queued && this->settings_keepalive_enabled_)
+    this->last_settings_keepalive_ms_ = millis();
+  return queued;
 }
 
-bool AllpowersBLE::send_settings_frame_() {
+bool AllpowersBLE::send_settings_frame_(const char *description) {
   // Command 0x02 always carries the settings bitmap and ECO timeout together.
   // Callers update one field in the shared snapshot before using this builder.
   std::array<uint8_t, 10> frame{
@@ -849,7 +881,10 @@ bool AllpowersBLE::send_settings_frame_() {
     checksum ^= frame[index];
   frame.back() = checksum;
 
-  return this->write_frame_(frame.data(), frame.size(), "settings");
+  const bool queued = this->write_frame_(frame.data(), frame.size(), description);
+  if (queued && this->settings_keepalive_enabled_)
+    this->last_settings_keepalive_ms_ = millis();
+  return queued;
 }
 
 bool AllpowersBLE::write_frame_(uint8_t *data, size_t length, const char *description) {

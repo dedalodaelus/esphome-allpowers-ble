@@ -51,6 +51,8 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   void set_stale_timeout(uint32_t timeout_ms) { this->stale_timeout_ms_ = timeout_ms; }
   void set_keepalive_interval(uint32_t interval_ms) { this->keepalive_interval_ms_ = interval_ms; }
   void set_watchdog_timeout(uint32_t timeout_ms) { this->watchdog_timeout_ms_ = timeout_ms; }
+  void set_settings_keepalive_enabled(bool enabled) { this->settings_keepalive_enabled_ = enabled; }
+  void set_settings_keepalive_interval(uint32_t interval_ms) { this->settings_keepalive_interval_ms_ = interval_ms; }
   void set_experimental_device_name_enabled(bool enabled) { this->experimental_device_name_enabled_ = enabled; }
 
   void set_soc_sensor(sensor::Sensor *sensor) { this->soc_sensor_ = sensor; }
@@ -166,7 +168,7 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   void request_forced_reconnect_(const char *reason);
   bool valid_utf8_(const uint8_t *data, size_t length) const;
   bool send_control_frame_();
-  bool send_settings_frame_();
+  bool send_settings_frame_(const char *description = "settings");
   bool write_frame_(uint8_t *data, size_t length, const char *description);
   bool controls_available_() const;
   bool settings_available_() const;
@@ -199,16 +201,20 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   // time, work mode or the independent car-charger output can be changed.
   bool have_settings_{false};
   bool settings_fresh_{false};
+  bool have_settings_snapshot_{false};
   uint8_t settings_flags_{0};
   uint8_t eco_time_{0};
 
   uint32_t stale_timeout_ms_{30000};
   uint32_t keepalive_interval_ms_{20000};
   uint32_t watchdog_timeout_ms_{45000};
+  bool settings_keepalive_enabled_{false};
+  uint32_t settings_keepalive_interval_ms_{540000};
   uint32_t last_valid_packet_ms_{0};
   uint32_t last_settings_packet_ms_{0};
   uint32_t last_protocol_packet_ms_{0};
   uint32_t last_status_request_ms_{0};
+  uint32_t last_settings_keepalive_ms_{0};
   bool connection_health_active_{false};
   bool forced_reconnect_pending_{false};
   const char *forced_reconnect_reason_{nullptr};
