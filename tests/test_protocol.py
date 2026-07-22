@@ -218,6 +218,30 @@ def settings_keepalive_action(
     return "resend_settings"
 
 
+def initial_settings_keepalive_action(
+    *, enabled: bool, new_connection: bool, snapshot_received: bool
+) -> str:
+    """Model the earliest safe keepalive after a newly established session."""
+
+    if not enabled or not new_connection:
+        return "disabled"
+    if not snapshot_received:
+        return "wait_for_snapshot"
+    return "resend_settings"
+
+
+def manual_settings_keepalive_action(
+    *, ble_ready: bool, snapshot_received: bool
+) -> str:
+    """Model the one-shot button independently of the periodic switch."""
+
+    if not ble_ready:
+        return "ignore_not_connected"
+    if not snapshot_received:
+        return "ignore_no_snapshot"
+    return "resend_settings"
+
+
 def make_eco_mode_frame(
     *, settings_flags: int, eco_time: int, eco_enabled: bool
 ) -> bytes:
@@ -547,6 +571,52 @@ def test_settings_keepalive_is_opt_in_and_snapshot_gated() -> None:
     )
 
 
+def test_initial_settings_keepalive_waits_only_for_a_safe_snapshot() -> None:
+    """A new session must not consume another full nine-minute interval."""
+
+    assert (
+        initial_settings_keepalive_action(
+            enabled=True, new_connection=True, snapshot_received=False
+        )
+        == "wait_for_snapshot"
+    )
+    assert (
+        initial_settings_keepalive_action(
+            enabled=True, new_connection=True, snapshot_received=True
+        )
+        == "resend_settings"
+    )
+    assert (
+        initial_settings_keepalive_action(
+            enabled=False, new_connection=True, snapshot_received=True
+        )
+        == "disabled"
+    )
+    assert (
+        initial_settings_keepalive_action(
+            enabled=True, new_connection=False, snapshot_received=True
+        )
+        == "disabled"
+    )
+
+
+def test_manual_settings_keepalive_does_not_require_periodic_mode() -> None:
+    """The button is gated by connection safety, not by the periodic switch."""
+
+    assert (
+        manual_settings_keepalive_action(ble_ready=False, snapshot_received=True)
+        == "ignore_not_connected"
+    )
+    assert (
+        manual_settings_keepalive_action(ble_ready=True, snapshot_received=False)
+        == "ignore_no_snapshot"
+    )
+    assert (
+        manual_settings_keepalive_action(ble_ready=True, snapshot_received=True)
+        == "resend_settings"
+    )
+
+
 def test_unsupported_work_mode_is_rejected() -> None:
     """Reject the reserved two-bit value and values outside the field."""
 
@@ -574,5 +644,7 @@ if __name__ == "__main__":
     test_device_name_query_retry_policy()
     test_status_request_and_connection_health_ordering()
     test_settings_keepalive_is_opt_in_and_snapshot_gated()
+    test_initial_settings_keepalive_waits_only_for_a_safe_snapshot()
+    test_manual_settings_keepalive_does_not_require_periodic_mode()
     test_unsupported_work_mode_is_rejected()
     print("Protocol tests passed")
