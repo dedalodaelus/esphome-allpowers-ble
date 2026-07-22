@@ -12,9 +12,7 @@
 #include <string>
 
 #include "esphome/components/binary_sensor/binary_sensor.h"
-#include "esphome/components/ble_client/ble_client.h"
 #include "esphome/components/button/button.h"
-#include "esphome/components/esp32_ble_tracker/esp32_ble_tracker.h"
 #include "esphome/components/number/number.h"
 #include "esphome/components/select/select.h"
 #include "esphome/components/sensor/sensor.h"
@@ -24,12 +22,13 @@
 #include "esphome/core/component.h"
 #include "esphome/core/preferences.h"
 
+#include "allpowers_ble_protocol.h"
+#include "allpowers_ble_transport.h"
+
 #ifdef USE_ESP32
 #include <esp_gattc_api.h>
 
 namespace esphome::allpowers_ble {
-
-namespace espbt = esphome::esp32_ble_tracker;
 
 enum class OutputType : uint8_t { AC = 0, DC = 1, LIGHT = 2 };
 
@@ -44,17 +43,12 @@ class AllpowersBLEEcoShutdownTimeSelect;
 class AllpowersBLEWorkModeSelect;
 class AllpowersBLEDeviceNameText;
 
-class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
+class AllpowersBLE final : public Component, public AllpowersBLETransport {
  public:
   void setup() override;
   void loop() override;
   void dump_config() override;
-  void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
-                           esp_ble_gattc_cb_param_t *param) override;
 
-  void set_service_uuid16(uint16_t uuid) { this->service_uuid_ = espbt::ESPBTUUID::from_uint16(uuid); }
-  void set_service_uuid32(uint32_t uuid) { this->service_uuid_ = espbt::ESPBTUUID::from_uint32(uuid); }
-  void set_service_uuid128(const uint8_t *uuid) { this->service_uuid_ = espbt::ESPBTUUID::from_raw(uuid); }
   void set_stale_timeout(uint32_t timeout_ms) { this->stale_timeout_ms_ = timeout_ms; }
   void set_keepalive_interval(uint32_t interval_ms) { this->keepalive_interval_ms_ = interval_ms; }
   void set_watchdog_timeout(uint32_t timeout_ms) { this->watchdog_timeout_ms_ = timeout_ms; }
@@ -122,72 +116,22 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   bool request_device_name(const std::string &name);
 
  protected:
-  friend class AllpowersBLEStationNameTextSensor;
-
-  static constexpr uint16_t NOTIFY_UUID = 0xFFF1;
-  static constexpr uint16_t WRITE_UUID = 0xFFF2;
-  static constexpr size_t MIN_FRAME_LENGTH = 8;
-  static constexpr size_t MIN_STATUS_PACKET_LENGTH = 16;
-  static constexpr size_t MIN_SETTINGS_PACKET_LENGTH = 14;
-
-  static constexpr size_t PAYLOAD_LENGTH_OFFSET = 5;
-  static constexpr size_t COMMAND_OFFSET = 6;
-  static constexpr uint8_t STATUS_COMMAND = 0x01;
-  static constexpr uint8_t SETTINGS_STATUS_COMMAND = 0x03;
-  static constexpr uint8_t DEVICE_NAME_COMMAND = 0x35;
-  static constexpr size_t MAX_DEVICE_NAME_LENGTH = 96;
   static constexpr uint8_t DEVICE_NAME_QUERY_MAX_ATTEMPTS = 3;
   static constexpr uint32_t DEVICE_NAME_QUERY_INITIAL_DELAY_MS = 500;
   static constexpr uint32_t DEVICE_NAME_QUERY_RETRY_INTERVAL_MS = 3000;
 
-  // Verified offsets in the status notification format used by the upstream
-  // implementation. Keeping them named avoids scattering protocol magic
-  // numbers through the parser.
-  static constexpr size_t STATUS_OFFSET = 7;
-  static constexpr size_t SOC_OFFSET = 8;
-  static constexpr size_t INPUT_POWER_OFFSET = 9;
-  static constexpr size_t OUTPUT_POWER_OFFSET = 11;
-  static constexpr size_t REMAINING_TIME_OFFSET = 13;
-
-  // The settings notification and write command share the settings bitmap and
-  // ECO timeout fields. Retaining both raw values lets each exposed setting
-  // use one read-modify-write path without overwriting fields that remain
-  // intentionally unmanaged.
-  static constexpr size_t SETTINGS_FLAGS_OFFSET = 7;
-  static constexpr size_t SETTINGS_ECO_TIME_OFFSET = 8;
-  static constexpr size_t SETTINGS_HARDWARE_VERSION_OFFSET = 11;
-  static constexpr size_t SETTINGS_FIRMWARE_VERSION_OFFSET = 12;
-  static constexpr uint8_t SETTINGS_ECO_MASK = 1U << 0U;
-  static constexpr uint8_t SETTINGS_WORK_MODE_MASK = 0x06U;
-  static constexpr uint8_t SETTINGS_WORK_MODE_SHIFT = 1U;
-  static constexpr uint8_t SETTINGS_CAR_CHARGER_MASK = 1U << 4U;
-
-  static constexpr uint8_t STATUS_DC_MASK = 1U << 0U;
-  static constexpr uint8_t STATUS_AC_MASK = 1U << 1U;
-  static constexpr uint8_t STATUS_FREQUENCY_MASK = 1U << 2U;
-  static constexpr uint8_t STATUS_LIGHT_MASK = 1U << 4U;
-
-  static constexpr uint8_t CONTROL_DC_MASK = 1U << 0U;
-  static constexpr uint8_t CONTROL_AC_MASK = 1U << 1U;
-  static constexpr uint8_t CONTROL_LIGHT_MASK = 1U << 5U;
-
-  static std::string format_version_(uint8_t encoded_version);
-  bool validate_notification_(const uint8_t *data, uint16_t length) const;
   void process_notification_(const uint8_t *data, uint16_t length);
-  void process_status_notification_(const uint8_t *data, uint16_t length);
-  void process_settings_notification_(const uint8_t *data, uint16_t length);
-  void process_device_name_notification_(const uint8_t *data, uint16_t length);
+  void process_status_(const protocol::StatusData &status);
+  void process_settings_(const protocol::SettingsData &settings);
+  void process_device_name_(const std::string &name);
   bool request_device_name_query_();
   bool send_device_name_frame_(const std::string &name);
   bool send_status_request_();
   void start_connection_health_();
   void schedule_forced_reconnect_(const char *reason);
   void request_forced_reconnect_(const char *reason);
-  bool valid_utf8_(const uint8_t *data, size_t length) const;
-  bool normalize_station_name_(const std::string &name, std::string *normalized_name) const;
   bool send_control_frame_();
   bool send_settings_frame_(const char *description = "settings");
-  bool write_frame_(uint8_t *data, size_t length, const char *description);
   bool controls_available_() const;
   bool settings_available_() const;
   void publish_switch_states_();
@@ -199,10 +143,11 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   void set_protocol_error_(bool state);
   void reset_connection_state_();
 
-  espbt::ESPBTUUID service_uuid_{espbt::ESPBTUUID::from_uint16(0xFFF0)};
-  uint16_t notify_handle_{0};
-  uint16_t write_handle_{0};
-  esp_gatt_char_prop_t write_properties_{};
+  void on_transport_connected_() override;
+  void on_transport_disconnected_() override;
+  void on_transport_ready_() override;
+  void on_transport_notification_(const uint8_t *data, uint16_t length) override;
+  void on_transport_error_(const char *reason, bool reconnect) override;
 
   // A BLE link alone is not enough to make output control safe. have_status_
   // means a complete frame established the current AC/DC/light bitmap;
@@ -352,7 +297,7 @@ class AllpowersBLEStationNameTextSensor final : public text_sensor::TextSensor, 
 
  protected:
   static constexpr uint32_t PREFERENCE_VERSION = 0x53544E01;
-  static constexpr size_t STORED_NAME_CAPACITY = 96;
+  static constexpr size_t STORED_NAME_CAPACITY = protocol::MAX_DEVICE_NAME_LENGTH;
 
   struct __attribute__((packed)) StationNamePreference {
     uint64_t station_address;

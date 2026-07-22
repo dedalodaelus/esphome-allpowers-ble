@@ -8,14 +8,11 @@
 
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <cmath>
 #include <inttypes.h>
 #include <limits>
 #include <string>
 #include <vector>
-
-#include <esp_err.h>
 
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
@@ -25,11 +22,6 @@
 namespace esphome::allpowers_ble {
 
 static const char *const TAG = "allpowers_ble";
-static constexpr std::array<uint8_t, 4> ECO_SHUTDOWN_HOURS{{1, 2, 4, 6}};
-static constexpr std::array<uint8_t, 3> WORK_MODES{{0, 1, 2}};
-static constexpr float MIN_SETTINGS_KEEPALIVE_MINUTES = 1.0f;
-static constexpr float MAX_SETTINGS_KEEPALIVE_MINUTES = 9.0f;
-static constexpr float MILLISECONDS_PER_MINUTE = 60000.0f;
 
 void AllpowersBLE::setup() {
   if (this->connected_binary_sensor_ != nullptr)
@@ -192,9 +184,6 @@ void AllpowersBLE::reset_connection_state_() {
   // Drop every handle and protocol-derived state together. A later reconnect
   // must rediscover GATT and receive fresh status/settings notifications
   // before the corresponding controls are exposed again.
-  this->notify_handle_ = 0;
-  this->write_handle_ = 0;
-  this->write_properties_ = static_cast<esp_gatt_char_prop_t>(0);
   this->have_status_ = false;
   this->data_fresh_ = false;
   this->last_valid_packet_ms_ = 0;
@@ -225,164 +214,30 @@ void AllpowersBLE::reset_connection_state_() {
     this->device_name_text_->clear_state();
 }
 
-void AllpowersBLE::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
-                                       esp_ble_gattc_cb_param_t *param) {
-  (void) gattc_if;
+void AllpowersBLE::on_transport_connected_() {
+  if (this->connected_binary_sensor_ != nullptr)
+    this->connected_binary_sensor_->publish_state(true);
+}
 
-  // Expected setup sequence:
-  //   OPEN -> service discovery -> locate FFF1/FFF2 -> register FFF1 notify.
-  // The component becomes operational only after a valid status frame, even
-  // though BLEClientNode reaches ESTABLISHED when GATT setup has completed.
-  switch (event) {
-    case ESP_GATTC_OPEN_EVT:
-      if (param->open.status == ESP_GATT_OK || param->open.status == ESP_GATT_ALREADY_OPEN) {
-        if (this->connected_binary_sensor_ != nullptr)
-          this->connected_binary_sensor_->publish_state(true);
-      }
-      break;
+void AllpowersBLE::on_transport_disconnected_() { this->reset_connection_state_(); }
 
-    case ESP_GATTC_DISCONNECT_EVT:
-    case ESP_GATTC_CLOSE_EVT:
-      this->reset_connection_state_();
-      break;
-
-    case ESP_GATTC_SEARCH_CMPL_EVT: {
-      auto *notify_characteristic =
-          this->parent()->get_characteristic(this->service_uuid_, espbt::ESPBTUUID::from_uint16(NOTIFY_UUID));
-      auto *write_characteristic =
-          this->parent()->get_characteristic(this->service_uuid_, espbt::ESPBTUUID::from_uint16(WRITE_UUID));
-
-      if (notify_characteristic == nullptr || write_characteristic == nullptr) {
-        ESP_LOGE(TAG, "Required ALLPOWERS GATT characteristics FFF1/FFF2 were not found under the configured service");
-        this->set_protocol_error_(true);
-        this->publish_controls_available_(false);
-        this->publish_settings_available_(false);
-        // Mark this BLEClientNode's discovery phase as complete so ESPHome is
-        // not left waiting indefinitely. Diagnostics still report failure and
-        // controls remain unavailable because no valid handles/status exist.
-        this->node_state = espbt::ClientState::ESTABLISHED;
-        break;
-      }
-
-      this->notify_handle_ = notify_characteristic->handle;
-      this->write_handle_ = write_characteristic->handle;
-      this->write_properties_ = write_characteristic->properties;
-
-      if ((notify_characteristic->properties & ESP_GATT_CHAR_PROP_BIT_NOTIFY) == 0 &&
-          (notify_characteristic->properties & ESP_GATT_CHAR_PROP_BIT_INDICATE) == 0) {
-        ESP_LOGE(TAG, "Characteristic FFF1 has neither notify nor indicate property");
-        this->set_protocol_error_(true);
-        this->publish_controls_available_(false);
-        this->publish_settings_available_(false);
-        // See the discovery-failure note above: ESTABLISHED here means this
-        // node finished setup, not that the ALLPOWERS protocol is usable.
-        this->node_state = espbt::ClientState::ESTABLISHED;
-        break;
-      }
-
-      const esp_err_t status = esp_ble_gattc_register_for_notify(
-          this->parent()->get_gattc_if(), this->parent()->get_remote_bda(), this->notify_handle_);
-      if (status != ESP_OK) {
-        ESP_LOGE(TAG, "esp_ble_gattc_register_for_notify failed: %s", esp_err_to_name(status));
-        this->set_protocol_error_(true);
-        this->publish_controls_available_(false);
-        this->publish_settings_available_(false);
-        // Finish node setup without exposing controls. A future reconnect can
-        // retry discovery and notification registration from a clean state.
-        this->node_state = espbt::ClientState::ESTABLISHED;
-        this->schedule_forced_reconnect_("notification registration could not be queued");
-      }
-      break;
-    }
-
-    case ESP_GATTC_REG_FOR_NOTIFY_EVT:
-      if (param->reg_for_notify.handle != this->notify_handle_)
-        break;
-      if (param->reg_for_notify.status != ESP_GATT_OK) {
-        ESP_LOGE(TAG, "Notification registration failed, status=%d", param->reg_for_notify.status);
-        this->set_protocol_error_(true);
-        this->publish_controls_available_(false);
-        this->publish_settings_available_(false);
-        this->schedule_forced_reconnect_("notification registration failed");
-      } else {
-        ESP_LOGI(TAG, "Subscribed to ALLPOWERS notifications");
-      }
-      // Notification registration completes this BLEClientNode's setup. The
-      // first valid status notification is still required before writes.
-      this->node_state = espbt::ClientState::ESTABLISHED;
-      if (param->reg_for_notify.status == ESP_GATT_OK)
-        this->start_connection_health_();
-      if (param->reg_for_notify.status == ESP_GATT_OK && this->experimental_device_name_enabled_ &&
-          this->device_name_text_ != nullptr) {
-        this->device_name_query_active_ = true;
-        this->device_name_query_attempts_ = 0;
-        this->next_device_name_query_ms_ = millis() + DEVICE_NAME_QUERY_INITIAL_DELAY_MS;
-      }
-      break;
-
-    case ESP_GATTC_NOTIFY_EVT:
-      if (param->notify.handle == this->notify_handle_)
-        this->process_notification_(param->notify.value, param->notify.value_len);
-      break;
-
-    case ESP_GATTC_WRITE_CHAR_EVT:
-      if (param->write.handle == this->write_handle_ && param->write.status != ESP_GATT_OK) {
-        ESP_LOGW(TAG, "ALLPOWERS write failed, status=%d", param->write.status);
-        this->set_protocol_error_(true);
-        this->schedule_forced_reconnect_("GATT write failed");
-      }
-      break;
-
-    default:
-      break;
+void AllpowersBLE::on_transport_ready_() {
+  this->start_connection_health_();
+  if (this->experimental_device_name_enabled_ && this->device_name_text_ != nullptr) {
+    this->device_name_query_active_ = true;
+    this->device_name_query_attempts_ = 0;
+    this->next_device_name_query_ms_ = millis() + DEVICE_NAME_QUERY_INITIAL_DELAY_MS;
   }
 }
 
-std::string AllpowersBLE::format_version_(uint8_t encoded_version) {
-  const uint8_t major = encoded_version >> 4U;
-  const uint8_t minor = encoded_version & 0x0FU;
-
-  // The official application converts the byte to hexadecimal text and then
-  // divides that text as a decimal number by ten. For bytes whose nibbles are
-  // decimal digits, that is equivalent to a packed major.minor version. Keep
-  // unexpected values observable instead of manufacturing a misleading number.
-  if (major > 9U || minor > 9U)
-    return str_sprintf("0x%02X", encoded_version);
-
-  return str_sprintf("%u.%u", major, minor);
+void AllpowersBLE::on_transport_notification_(const uint8_t *data, uint16_t length) {
+  this->process_notification_(data, length);
 }
 
-bool AllpowersBLE::validate_notification_(const uint8_t *data, uint16_t length) const {
-  if (length < MIN_FRAME_LENGTH) {
-    ESP_LOGW(TAG, "Ignoring short notification: expected at least %u bytes, received %u",
-             static_cast<unsigned>(MIN_FRAME_LENGTH), length);
-    return false;
-  }
-
-  if (data[0] != 0xA5 || data[1] != 0x65) {
-    ESP_LOGW(TAG, "Ignoring notification with unknown header: %02X %02X", data[0], data[1]);
-    return false;
-  }
-
-  // The official application validates notifications as an eight-byte frame
-  // envelope plus the payload length declared in byte 5. The final byte is the
-  // XOR of every preceding byte, so XOR across the complete frame must be zero.
-  const size_t expected_length = MIN_FRAME_LENGTH + data[PAYLOAD_LENGTH_OFFSET];
-  if (expected_length != length) {
-    ESP_LOGW(TAG, "Ignoring notification with inconsistent length: declared %u bytes, received %u",
-             static_cast<unsigned>(expected_length), length);
-    return false;
-  }
-
-  uint8_t checksum = 0;
-  for (size_t index = 0; index < length; index++)
-    checksum ^= data[index];
-  if (checksum != 0) {
-    ESP_LOGW(TAG, "Ignoring notification with invalid XOR checksum");
-    return false;
-  }
-
-  return true;
+void AllpowersBLE::on_transport_error_(const char *reason, bool reconnect) {
+  this->set_protocol_error_(true);
+  if (reconnect)
+    this->schedule_forced_reconnect_(reason);
 }
 
 void AllpowersBLE::process_notification_(const uint8_t *data, uint16_t length) {
@@ -391,7 +246,9 @@ void AllpowersBLE::process_notification_(const uint8_t *data, uint16_t length) {
   if (this->packet_length_sensor_ != nullptr)
     this->packet_length_sensor_->publish_state(length);
 
-  if (!this->validate_notification_(data, length)) {
+  const protocol::ParseError validation = protocol::validate_frame(data, length);
+  if (validation != protocol::ParseError::NONE) {
+    ESP_LOGW(TAG, "Ignoring invalid notification: %s", protocol::parse_error_message(validation));
     this->set_protocol_error_(true);
     return;
   }
@@ -400,31 +257,57 @@ void AllpowersBLE::process_notification_(const uint8_t *data, uint16_t length) {
   // watchdog reconnect while another command family proves the link is alive.
   this->last_protocol_packet_ms_ = millis();
 
-  switch (data[COMMAND_OFFSET]) {
-    case STATUS_COMMAND:
-      this->process_status_notification_(data, length);
+  switch (data[protocol::COMMAND_OFFSET]) {
+    case protocol::STATUS_COMMAND: {
+      protocol::StatusData status;
+      const protocol::ParseError result = protocol::parse_status(data, length, &status);
+      if (result != protocol::ParseError::NONE) {
+        ESP_LOGW(TAG, "Ignoring invalid status notification: %s", protocol::parse_error_message(result));
+        this->set_protocol_error_(true);
+        return;
+      }
+      this->process_status_(status);
       break;
-    case SETTINGS_STATUS_COMMAND:
-      this->process_settings_notification_(data, length);
+    }
+    case protocol::SETTINGS_STATUS_COMMAND: {
+      protocol::SettingsData settings;
+      const protocol::ParseError result = protocol::parse_settings(data, length, &settings);
+      if (result != protocol::ParseError::NONE) {
+        ESP_LOGW(TAG, "Ignoring invalid settings notification: %s", protocol::parse_error_message(result));
+        this->set_protocol_error_(true);
+        return;
+      }
+      this->process_settings_(settings);
       break;
-    case DEVICE_NAME_COMMAND:
-      this->process_device_name_notification_(data, length);
+    }
+    case protocol::DEVICE_NAME_COMMAND: {
+      if (!this->experimental_device_name_enabled_ || this->device_name_text_ == nullptr)
+        break;
+      std::string name;
+      const protocol::ParseError result = protocol::parse_device_name(data, length, &name);
+      if (result != protocol::ParseError::NONE) {
+        ESP_LOGW(TAG, "Ignoring invalid device-name response: %s", protocol::parse_error_message(result));
+        std::string stored_name;
+        this->update_station_name("", "invalid command 0x35 response", &stored_name);
+        if (!stored_name.empty())
+          this->device_name_text_->publish_state(stored_name);
+        this->set_protocol_error_(true);
+        return;
+      }
+      this->process_device_name_(name);
       break;
+    }
     default:
       // Other valid command families exist in newer stations. They are not a
       // protocol fault and must not be interpreted as telemetry by offset.
-      ESP_LOGV(TAG, "Ignoring unsupported notification command 0x%02X", data[COMMAND_OFFSET]);
+      ESP_LOGV(TAG, "Ignoring unsupported notification command 0x%02X", data[protocol::COMMAND_OFFSET]);
       this->set_protocol_error_(false);
       break;
   }
 }
 
-void AllpowersBLE::process_device_name_notification_(const uint8_t *data, uint16_t length) {
-  if (!this->experimental_device_name_enabled_ || this->device_name_text_ == nullptr)
-    return;
-
-  const size_t payload_length = data[PAYLOAD_LENGTH_OFFSET];
-  if (payload_length == 0) {
+void AllpowersBLE::process_device_name_(const std::string &name) {
+  if (name.empty()) {
     std::string stored_name;
     this->update_station_name("", "empty command 0x35 response", &stored_name);
     if (!stored_name.empty())
@@ -432,30 +315,9 @@ void AllpowersBLE::process_device_name_notification_(const uint8_t *data, uint16
     this->set_protocol_error_(false);
     return;
   }
-  if (payload_length > MAX_DEVICE_NAME_LENGTH || length != MIN_FRAME_LENGTH + payload_length) {
-    ESP_LOGW(TAG, "Ignoring invalid device-name response length: %u", static_cast<unsigned>(payload_length));
-    std::string stored_name;
-    this->update_station_name("", "invalid command 0x35 response", &stored_name);
-    if (!stored_name.empty())
-      this->device_name_text_->publish_state(stored_name);
-    this->set_protocol_error_(true);
-    return;
-  }
-
-  const uint8_t *name = data + 7;
-  if (!this->valid_utf8_(name, payload_length)) {
-    ESP_LOGW(TAG, "Ignoring device-name response containing invalid UTF-8");
-    std::string stored_name;
-    this->update_station_name("", "invalid command 0x35 response", &stored_name);
-    if (!stored_name.empty())
-      this->device_name_text_->publish_state(stored_name);
-    this->set_protocol_error_(true);
-    return;
-  }
 
   std::string normalized_name;
-  const bool received_valid_name = this->update_station_name(
-      std::string(reinterpret_cast<const char *>(name), payload_length), "command 0x35", &normalized_name);
+  const bool received_valid_name = this->update_station_name(name, "command 0x35", &normalized_name);
   if (!normalized_name.empty())
     this->device_name_text_->publish_state(normalized_name);
   if (!received_valid_name) {
@@ -469,7 +331,7 @@ void AllpowersBLE::process_device_name_notification_(const uint8_t *data, uint16
 
 bool AllpowersBLE::update_station_name(const std::string &name, const char *source, std::string *normalized_name) {
   std::string normalized;
-  if (!this->normalize_station_name_(name, &normalized)) {
+  if (!protocol::normalize_station_name(name, &normalized)) {
     ESP_LOGD(TAG, "Ignoring invalid or unavailable station name from %s", source);
     if (this->station_name_text_sensor_ != nullptr)
       this->station_name_text_sensor_->publish_stored(this->get_station_address(), normalized_name);
@@ -483,134 +345,26 @@ bool AllpowersBLE::update_station_name(const std::string &name, const char *sour
   return true;
 }
 
-bool AllpowersBLE::normalize_station_name_(const std::string &name, std::string *normalized_name) const {
-  size_t first = 0;
-  while (first < name.size() && std::isspace(static_cast<unsigned char>(name[first])))
-    first++;
-  size_t last = name.size();
-  while (last > first && std::isspace(static_cast<unsigned char>(name[last - 1])))
-    last--;
-
-  if (first == last || last - first > MAX_DEVICE_NAME_LENGTH)
-    return false;
-
-  const std::string normalized = name.substr(first, last - first);
-  if (!this->valid_utf8_(reinterpret_cast<const uint8_t *>(normalized.data()), normalized.size()))
-    return false;
-  for (const unsigned char byte : normalized) {
-    if (byte < 0x20 || byte == 0x7F)
-      return false;
-  }
-
-  std::string lowercase;
-  lowercase.reserve(normalized.size());
-  for (const unsigned char byte : normalized)
-    lowercase.push_back(byte < 0x80 ? static_cast<char>(std::tolower(byte)) : static_cast<char>(byte));
-
-  static constexpr std::array<const char *, 16> INVALID_NAMES{{
-      "unknown",
-      "(unknown)",
-      "unknown device",
-      "unavailable",
-      "not available",
-      "not found",
-      "not set",
-      "n/a",
-      "none",
-      "null",
-      "undefined",
-      "failed",
-      "error",
-      "-",
-      "--",
-      "?",
-  }};
-  if (std::find(INVALID_NAMES.begin(), INVALID_NAMES.end(), lowercase) != INVALID_NAMES.end())
-    return false;
-
-  *normalized_name = normalized;
-  return true;
-}
-
-bool AllpowersBLE::valid_utf8_(const uint8_t *data, size_t length) const {
-  size_t index = 0;
-  while (index < length) {
-    const uint8_t first = data[index++];
-    if (first <= 0x7F)
-      continue;
-
-    size_t continuation_count;
-    uint32_t codepoint;
-    if ((first & 0xE0) == 0xC0) {
-      continuation_count = 1;
-      codepoint = first & 0x1F;
-    } else if ((first & 0xF0) == 0xE0) {
-      continuation_count = 2;
-      codepoint = first & 0x0F;
-    } else if ((first & 0xF8) == 0xF0) {
-      continuation_count = 3;
-      codepoint = first & 0x07;
-    } else {
-      return false;
-    }
-
-    if (index + continuation_count > length)
-      return false;
-    for (size_t offset = 0; offset < continuation_count; offset++) {
-      const uint8_t continuation = data[index++];
-      if ((continuation & 0xC0) != 0x80)
-        return false;
-      codepoint = (codepoint << 6) | (continuation & 0x3F);
-    }
-
-    if ((continuation_count == 1 && codepoint < 0x80) || (continuation_count == 2 && codepoint < 0x800) ||
-        (continuation_count == 3 && codepoint < 0x10000) || codepoint > 0x10FFFF ||
-        (codepoint >= 0xD800 && codepoint <= 0xDFFF))
-      return false;
-  }
-  return true;
-}
-
-void AllpowersBLE::process_status_notification_(const uint8_t *data, uint16_t length) {
-  if (length < MIN_STATUS_PACKET_LENGTH) {
-    ESP_LOGW(TAG, "Ignoring short status notification: expected at least %u bytes, received %u",
-             static_cast<unsigned>(MIN_STATUS_PACKET_LENGTH), length);
-    this->set_protocol_error_(true);
-    return;
-  }
-
-  // Verified status fields from the upstream parser:
-  //   byte 7      output/status bitmap
-  //   byte 8      battery state of charge, percent
-  //   bytes 9-10  total input power, big-endian watts
-  //   bytes 11-12 total output power, big-endian watts
-  //   bytes 13-14 estimated remaining time, big-endian minutes
-  const uint8_t status = data[STATUS_OFFSET];
-  const uint8_t soc = data[SOC_OFFSET];
-  const uint16_t input_power = (static_cast<uint16_t>(data[INPUT_POWER_OFFSET]) << 8) | data[INPUT_POWER_OFFSET + 1];
-  const uint16_t output_power = (static_cast<uint16_t>(data[OUTPUT_POWER_OFFSET]) << 8) | data[OUTPUT_POWER_OFFSET + 1];
-  const uint16_t remaining_minutes =
-      (static_cast<uint16_t>(data[REMAINING_TIME_OFFSET]) << 8) | data[REMAINING_TIME_OFFSET + 1];
-
-  this->dc_on_ = (status & STATUS_DC_MASK) != 0;
-  this->ac_on_ = (status & STATUS_AC_MASK) != 0;
-  this->light_on_ = (status & STATUS_LIGHT_MASK) != 0;
+void AllpowersBLE::process_status_(const protocol::StatusData &status) {
+  this->dc_on_ = status.dc_on;
+  this->ac_on_ = status.ac_on;
+  this->light_on_ = status.light_on;
 
   if (this->soc_sensor_ != nullptr)
-    this->soc_sensor_->publish_state(soc);
+    this->soc_sensor_->publish_state(status.soc);
   if (this->input_power_sensor_ != nullptr)
-    this->input_power_sensor_->publish_state(input_power);
+    this->input_power_sensor_->publish_state(status.input_power);
   if (this->output_power_sensor_ != nullptr)
-    this->output_power_sensor_->publish_state(output_power);
+    this->output_power_sensor_->publish_state(status.output_power);
   if (this->remaining_time_sensor_ != nullptr)
-    this->remaining_time_sensor_->publish_state(remaining_minutes);
+    this->remaining_time_sensor_->publish_state(status.remaining_minutes);
   if (this->status_byte_sensor_ != nullptr)
-    this->status_byte_sensor_->publish_state(status);
+    this->status_byte_sensor_->publish_state(status.status);
 
   // Experimental field from unmerged upstream PR #2: status bit 2 selects
   // 50 Hz when clear and 60 Hz when set. It is exposed explicitly as experimental.
   if (this->ac_frequency_sensor_ != nullptr)
-    this->ac_frequency_sensor_->publish_state((status & STATUS_FREQUENCY_MASK) != 0 ? 60.0f : 50.0f);
+    this->ac_frequency_sensor_->publish_state(status.ac_frequency_hz);
 
   if (this->ac_output_binary_sensor_ != nullptr)
     this->ac_output_binary_sensor_->publish_state(this->ac_on_);
@@ -619,9 +373,9 @@ void AllpowersBLE::process_status_notification_(const uint8_t *data, uint16_t le
   if (this->light_binary_sensor_ != nullptr)
     this->light_binary_sensor_->publish_state(this->light_on_);
   if (this->charging_binary_sensor_ != nullptr)
-    this->charging_binary_sensor_->publish_state(input_power > 0);
+    this->charging_binary_sensor_->publish_state(status.input_power > 0);
   if (this->discharging_binary_sensor_ != nullptr)
-    this->discharging_binary_sensor_->publish_state(output_power > 0);
+    this->discharging_binary_sensor_->publish_state(status.output_power > 0);
 
   this->have_status_ = true;
   this->data_fresh_ = true;
@@ -633,21 +387,9 @@ void AllpowersBLE::process_status_notification_(const uint8_t *data, uint16_t le
   this->publish_switch_states_();
 }
 
-void AllpowersBLE::process_settings_notification_(const uint8_t *data, uint16_t length) {
-  if (length < MIN_SETTINGS_PACKET_LENGTH) {
-    ESP_LOGW(TAG, "Ignoring short settings notification: expected at least %u bytes, received %u",
-             static_cast<unsigned>(MIN_SETTINGS_PACKET_LENGTH), length);
-    this->set_protocol_error_(true);
-    return;
-  }
-
-  // Command 0x03 reports the complete settings bitmap and ECO timeout. Store
-  // both raw fields so each supported setting can be changed without resetting
-  // AC mode, self-use or reserved bits.
-  this->settings_flags_ = data[SETTINGS_FLAGS_OFFSET];
-  this->eco_time_ = data[SETTINGS_ECO_TIME_OFFSET];
-  const std::string hardware_version = format_version_(data[SETTINGS_HARDWARE_VERSION_OFFSET]);
-  const std::string firmware_version = format_version_(data[SETTINGS_FIRMWARE_VERSION_OFFSET]);
+void AllpowersBLE::process_settings_(const protocol::SettingsData &settings) {
+  this->settings_flags_ = settings.flags;
+  this->eco_time_ = settings.eco_time;
   this->have_settings_ = true;
   this->settings_fresh_ = true;
   this->have_settings_snapshot_ = true;
@@ -655,19 +397,18 @@ void AllpowersBLE::process_settings_notification_(const uint8_t *data, uint16_t 
 
   this->publish_settings_states_();
   if (this->hardware_version_text_sensor_ != nullptr)
-    this->hardware_version_text_sensor_->publish_state(hardware_version);
+    this->hardware_version_text_sensor_->publish_state(settings.hardware_version);
   if (this->firmware_version_text_sensor_ != nullptr)
-    this->firmware_version_text_sensor_->publish_state(firmware_version);
+    this->firmware_version_text_sensor_->publish_state(settings.firmware_version);
   this->publish_settings_available_(this->settings_available_());
   this->set_protocol_error_(false);
 
   ESP_LOGD(TAG,
            "Settings: flags=0x%02X, ECO=%s, ECO timeout=%u, work mode=%u, car charger=%s, hardware=%s, "
            "firmware=%s",
-           this->settings_flags_, (this->settings_flags_ & SETTINGS_ECO_MASK) != 0 ? "ON" : "OFF", this->eco_time_,
-           static_cast<unsigned>((this->settings_flags_ & SETTINGS_WORK_MODE_MASK) >> SETTINGS_WORK_MODE_SHIFT),
-           (this->settings_flags_ & SETTINGS_CAR_CHARGER_MASK) != 0 ? "ON" : "OFF", hardware_version.c_str(),
-           firmware_version.c_str());
+           this->settings_flags_, settings.eco_enabled ? "ON" : "OFF", this->eco_time_,
+           static_cast<unsigned>(settings.work_mode), settings.car_charger_enabled ? "ON" : "OFF",
+           settings.hardware_version.c_str(), settings.firmware_version.c_str());
 }
 
 void AllpowersBLE::publish_switch_states_() {
@@ -680,29 +421,28 @@ void AllpowersBLE::publish_switch_states_() {
 }
 
 void AllpowersBLE::publish_settings_states_() {
-  const bool eco_enabled = (this->settings_flags_ & SETTINGS_ECO_MASK) != 0;
+  const bool eco_enabled = (this->settings_flags_ & protocol::SETTINGS_ECO_MASK) != 0;
   if (this->eco_mode_binary_sensor_ != nullptr)
     this->eco_mode_binary_sensor_->publish_state(eco_enabled);
   if (this->eco_switch_ != nullptr)
     this->eco_switch_->publish_state(eco_enabled);
   if (this->car_charger_switch_ != nullptr)
-    this->car_charger_switch_->publish_state((this->settings_flags_ & SETTINGS_CAR_CHARGER_MASK) != 0);
+    this->car_charger_switch_->publish_state((this->settings_flags_ & protocol::SETTINGS_CAR_CHARGER_MASK) != 0);
   if (this->eco_shutdown_time_select_ != nullptr)
     this->eco_shutdown_time_select_->publish_hours(this->eco_time_);
   if (this->work_mode_select_ != nullptr) {
-    const uint8_t work_mode = (this->settings_flags_ & SETTINGS_WORK_MODE_MASK) >> SETTINGS_WORK_MODE_SHIFT;
+    const uint8_t work_mode =
+        (this->settings_flags_ & protocol::SETTINGS_WORK_MODE_MASK) >> protocol::SETTINGS_WORK_MODE_SHIFT;
     this->work_mode_select_->publish_mode(work_mode);
   }
 }
 
 bool AllpowersBLE::controls_available_() const {
-  return this->node_state == espbt::ClientState::ESTABLISHED && this->write_handle_ != 0 && this->have_status_ &&
-         this->data_fresh_;
+  return this->transport_ready_() && this->have_status_ && this->data_fresh_;
 }
 
 bool AllpowersBLE::settings_available_() const {
-  return this->node_state == espbt::ClientState::ESTABLISHED && this->write_handle_ != 0 && this->have_settings_ &&
-         this->settings_fresh_;
+  return this->transport_ready_() && this->have_settings_ && this->settings_fresh_;
 }
 
 bool AllpowersBLE::request_output(OutputType output, bool state) {
@@ -756,7 +496,7 @@ bool AllpowersBLE::request_eco_mode(bool state) {
     return false;
   }
 
-  const bool current_state = (this->settings_flags_ & SETTINGS_ECO_MASK) != 0;
+  const bool current_state = (this->settings_flags_ & protocol::SETTINGS_ECO_MASK) != 0;
   if (current_state == state) {
     // Avoid a redundant write and the confirmation beep produced by the station.
     this->publish_settings_states_();
@@ -765,9 +505,9 @@ bool AllpowersBLE::request_eco_mode(bool state) {
 
   const uint8_t old_flags = this->settings_flags_;
   if (state) {
-    this->settings_flags_ |= SETTINGS_ECO_MASK;
+    this->settings_flags_ |= protocol::SETTINGS_ECO_MASK;
   } else {
-    this->settings_flags_ &= static_cast<uint8_t>(~SETTINGS_ECO_MASK);
+    this->settings_flags_ &= static_cast<uint8_t>(~protocol::SETTINGS_ECO_MASK);
   }
 
   if (this->send_settings_frame_()) {
@@ -783,7 +523,8 @@ bool AllpowersBLE::request_eco_mode(bool state) {
 }
 
 bool AllpowersBLE::request_eco_shutdown_time(uint8_t hours) {
-  if (std::find(ECO_SHUTDOWN_HOURS.begin(), ECO_SHUTDOWN_HOURS.end(), hours) == ECO_SHUTDOWN_HOURS.end()) {
+  if (std::find(protocol::ECO_SHUTDOWN_HOURS.begin(), protocol::ECO_SHUTDOWN_HOURS.end(), hours) ==
+      protocol::ECO_SHUTDOWN_HOURS.end()) {
     ESP_LOGE(TAG, "Ignoring unsupported ECO shutdown time: %u hours", static_cast<unsigned>(hours));
     return false;
   }
@@ -820,7 +561,7 @@ bool AllpowersBLE::request_eco_shutdown_time(uint8_t hours) {
 }
 
 bool AllpowersBLE::request_work_mode(uint8_t mode) {
-  if (std::find(WORK_MODES.begin(), WORK_MODES.end(), mode) == WORK_MODES.end()) {
+  if (std::find(protocol::WORK_MODES.begin(), protocol::WORK_MODES.end(), mode) == protocol::WORK_MODES.end()) {
     ESP_LOGE(TAG, "Ignoring unsupported work mode: %u", static_cast<unsigned>(mode));
     return false;
   }
@@ -833,7 +574,8 @@ bool AllpowersBLE::request_work_mode(uint8_t mode) {
     return false;
   }
 
-  const uint8_t current_mode = (this->settings_flags_ & SETTINGS_WORK_MODE_MASK) >> SETTINGS_WORK_MODE_SHIFT;
+  const uint8_t current_mode =
+      (this->settings_flags_ & protocol::SETTINGS_WORK_MODE_MASK) >> protocol::SETTINGS_WORK_MODE_SHIFT;
   if (current_mode == mode) {
     // Avoid a redundant write and the audible acknowledgement produced by the
     // R600 for accepted settings commands.
@@ -843,8 +585,8 @@ bool AllpowersBLE::request_work_mode(uint8_t mode) {
 
   const uint8_t old_flags = this->settings_flags_;
   this->settings_flags_ =
-      static_cast<uint8_t>((this->settings_flags_ & static_cast<uint8_t>(~SETTINGS_WORK_MODE_MASK)) |
-                           static_cast<uint8_t>(mode << SETTINGS_WORK_MODE_SHIFT));
+      static_cast<uint8_t>((this->settings_flags_ & static_cast<uint8_t>(~protocol::SETTINGS_WORK_MODE_MASK)) |
+                           static_cast<uint8_t>(mode << protocol::SETTINGS_WORK_MODE_SHIFT));
 
   if (this->send_settings_frame_()) {
     // The next command-0x03 notification remains authoritative. This component
@@ -869,7 +611,7 @@ bool AllpowersBLE::request_car_charger(bool state) {
     return false;
   }
 
-  const bool current_state = (this->settings_flags_ & SETTINGS_CAR_CHARGER_MASK) != 0;
+  const bool current_state = (this->settings_flags_ & protocol::SETTINGS_CAR_CHARGER_MASK) != 0;
   if (current_state == state) {
     // Accepted settings writes produce an audible acknowledgement, so avoid a
     // command that cannot change the confirmed state.
@@ -879,9 +621,9 @@ bool AllpowersBLE::request_car_charger(bool state) {
 
   const uint8_t old_flags = this->settings_flags_;
   if (state) {
-    this->settings_flags_ |= SETTINGS_CAR_CHARGER_MASK;
+    this->settings_flags_ |= protocol::SETTINGS_CAR_CHARGER_MASK;
   } else {
-    this->settings_flags_ &= static_cast<uint8_t>(~SETTINGS_CAR_CHARGER_MASK);
+    this->settings_flags_ &= static_cast<uint8_t>(~protocol::SETTINGS_CAR_CHARGER_MASK);
   }
 
   if (this->send_settings_frame_()) {
@@ -901,14 +643,14 @@ bool AllpowersBLE::request_device_name(const std::string &name) {
     ESP_LOGW(TAG, "Ignoring device-name command: enable_experimental_device_name is false");
     return false;
   }
-  if (this->node_state != espbt::ClientState::ESTABLISHED || this->write_handle_ == 0) {
+  if (!this->transport_ready_()) {
     ESP_LOGW(TAG, "Ignoring device-name command: BLE client is not ready");
     return false;
   }
-  if (name.empty() || name.size() > MAX_DEVICE_NAME_LENGTH ||
-      !this->valid_utf8_(reinterpret_cast<const uint8_t *>(name.data()), name.size())) {
+  if (name.empty() || name.size() > protocol::MAX_DEVICE_NAME_LENGTH ||
+      !protocol::valid_utf8(reinterpret_cast<const uint8_t *>(name.data()), name.size())) {
     ESP_LOGW(TAG, "Ignoring device-name command: name must be valid UTF-8 and 1-%u bytes",
-             static_cast<unsigned>(MAX_DEVICE_NAME_LENGTH));
+             static_cast<unsigned>(protocol::MAX_DEVICE_NAME_LENGTH));
     return false;
   }
   return this->send_device_name_frame_(name);
@@ -920,8 +662,8 @@ bool AllpowersBLE::send_status_request_() {
   // Observed connection/status-subscription request used by
   // allpowers-companion. It is a fixed station-facing command rather than the
   // XOR-framed notification envelope, so reproduce the bytes exactly.
-  std::array<uint8_t, 12> frame{{0xA5, 0x65, 0xB1, 0x00, 0x01, 0x06, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00}};
-  return this->write_frame_(frame.data(), frame.size(), "status request");
+  protocol::StatusRequestFrame frame = protocol::status_request_frame();
+  return this->write_transport_frame_(frame.data(), frame.size(), "status request");
 }
 
 void AllpowersBLE::start_connection_health_() {
@@ -943,7 +685,7 @@ void AllpowersBLE::start_connection_health_() {
 }
 
 bool AllpowersBLE::send_settings_keepalive_now() {
-  if (this->node_state != espbt::ClientState::ESTABLISHED || this->disconnect_requested_ || this->write_handle_ == 0) {
+  if (!this->transport_ready_() || this->disconnect_requested_) {
     ESP_LOGW(TAG, "Cannot send settings keepalive now: BLE client is not ready");
     return false;
   }
@@ -980,46 +722,21 @@ void AllpowersBLE::request_forced_reconnect_(const char *reason) {
   this->forced_reconnect_pending_ = false;
   this->forced_reconnect_reason_ = nullptr;
   ESP_LOGW(TAG, "ALLPOWERS BLE connection appears stale (%s); forcing reconnect", reason);
-  this->parent()->disconnect();
+  this->disconnect_transport_();
 }
 
 bool AllpowersBLE::send_device_name_frame_(const std::string &name) {
-  std::vector<uint8_t> frame(MIN_FRAME_LENGTH + name.size(), 0);
-  frame[0] = 0xA5;
-  frame[1] = 0x65;
-  frame[2] = 0x00;
-  frame[3] = 0xB1;
-  frame[4] = 0x01;
-  frame[PAYLOAD_LENGTH_OFFSET] = static_cast<uint8_t>(name.size());
-  frame[COMMAND_OFFSET] = DEVICE_NAME_COMMAND;
-  std::copy(name.begin(), name.end(), frame.begin() + 7);
-
-  uint8_t checksum = 0;
-  for (size_t index = 0; index < frame.size() - 1; index++)
-    checksum ^= frame[index];
-  frame.back() = checksum;
-
-  return this->write_frame_(frame.data(), frame.size(), name.empty() ? "device-name query" : "device-name update");
+  std::vector<uint8_t> frame = protocol::make_device_name_frame(name);
+  return !frame.empty() && this->write_transport_frame_(frame.data(), frame.size(),
+                                                        name.empty() ? "device-name query" : "device-name update");
 }
 
 bool AllpowersBLE::send_control_frame_() {
   // Exact control frame and check-byte calculation from allpowers-ble. The
   // final byte is reproduced from upstream behavior; it is not treated as a
   // generally understood checksum algorithm.
-  std::array<uint8_t, 9> frame{{0xA5, 0x65, 0x00, 0xB1, 0x01, 0x01, 0x00, 0x00, 0x71}};
-  if (this->dc_on_)
-    frame[7] |= CONTROL_DC_MASK;
-  if (this->ac_on_)
-    frame[7] |= CONTROL_AC_MASK;
-  // Upstream writes light on bit 5, although notifications report it on bit 4.
-  if (this->light_on_)
-    frame[7] |= CONTROL_LIGHT_MASK;
-
-  frame[8] = static_cast<uint8_t>(113U - frame[7]);
-  if (this->ac_on_)
-    frame[8] = static_cast<uint8_t>(frame[8] + 4U);
-
-  const bool queued = this->write_frame_(frame.data(), frame.size(), "output control");
+  protocol::ControlFrame frame = protocol::make_control_frame({this->dc_on_, this->ac_on_, this->light_on_});
+  const bool queued = this->write_transport_frame_(frame.data(), frame.size(), "output control");
   if (queued && this->settings_keepalive_enabled_)
     this->last_settings_keepalive_ms_ = millis();
   return queued;
@@ -1028,46 +745,11 @@ bool AllpowersBLE::send_control_frame_() {
 bool AllpowersBLE::send_settings_frame_(const char *description) {
   // Command 0x02 always carries the settings bitmap and ECO timeout together.
   // Callers update one field in the shared snapshot before using this builder.
-  std::array<uint8_t, 10> frame{
-      {0xA5, 0x65, 0x00, 0xB1, 0x01, 0x02, 0x02, this->settings_flags_, this->eco_time_, 0x00}};
-  uint8_t checksum = 0;
-  for (size_t index = 0; index < frame.size() - 1; index++)
-    checksum ^= frame[index];
-  frame.back() = checksum;
-
-  const bool queued = this->write_frame_(frame.data(), frame.size(), description);
+  protocol::SettingsFrame frame = protocol::make_settings_frame(this->settings_flags_, this->eco_time_);
+  const bool queued = this->write_transport_frame_(frame.data(), frame.size(), description);
   if (queued && this->settings_keepalive_enabled_)
     this->last_settings_keepalive_ms_ = millis();
   return queued;
-}
-
-bool AllpowersBLE::write_frame_(uint8_t *data, size_t length, const char *description) {
-  if (this->node_state != espbt::ClientState::ESTABLISHED || this->write_handle_ == 0) {
-    ESP_LOGW(TAG, "Cannot write ALLPOWERS %s frame: BLE client is not ready", description);
-    return false;
-  }
-
-  esp_gatt_write_type_t write_type;
-  if ((this->write_properties_ & ESP_GATT_CHAR_PROP_BIT_WRITE) != 0) {
-    write_type = ESP_GATT_WRITE_TYPE_RSP;
-  } else if ((this->write_properties_ & ESP_GATT_CHAR_PROP_BIT_WRITE_NR) != 0) {
-    write_type = ESP_GATT_WRITE_TYPE_NO_RSP;
-  } else {
-    ESP_LOGE(TAG, "Characteristic FFF2 does not advertise a writable property");
-    this->set_protocol_error_(true);
-    return false;
-  }
-
-  ESP_LOGD(TAG, "Writing %s frame: %s", description, format_hex_pretty(data, length).c_str());
-  const esp_err_t result =
-      esp_ble_gattc_write_char(this->parent()->get_gattc_if(), this->parent()->get_conn_id(), this->write_handle_,
-                               static_cast<uint16_t>(length), data, write_type, ESP_GATT_AUTH_REQ_NONE);
-  if (result != ESP_OK) {
-    ESP_LOGE(TAG, "esp_ble_gattc_write_char failed: %s", esp_err_to_name(result));
-    this->set_protocol_error_(true);
-    return false;
-  }
-  return true;
 }
 
 void AllpowersBLE::invalidate_data_entities_() {
@@ -1128,217 +810,6 @@ void AllpowersBLE::publish_settings_available_(bool state) {
 void AllpowersBLE::set_protocol_error_(bool state) {
   if (this->protocol_error_binary_sensor_ != nullptr)
     this->protocol_error_binary_sensor_->publish_state(state);
-}
-
-void AllpowersBLESwitch::write_state(bool state) {
-  if (this->parent_ == nullptr) {
-    ESP_LOGE(TAG, "Allpowers switch has no parent component");
-    return;
-  }
-  this->parent_->request_output(this->output_type_, state);
-}
-
-void AllpowersBLEEcoSwitch::write_state(bool state) {
-  if (this->parent_ == nullptr) {
-    ESP_LOGE(TAG, "ALLPOWERS ECO switch has no parent component");
-    return;
-  }
-  this->parent_->request_eco_mode(state);
-}
-
-void AllpowersBLECarChargerSwitch::write_state(bool state) {
-  if (this->parent_ == nullptr) {
-    ESP_LOGE(TAG, "ALLPOWERS car charger switch has no parent component");
-    return;
-  }
-  this->parent_->request_car_charger(state);
-}
-
-void AllpowersBLESettingsKeepaliveSwitch::setup() {
-  const optional<bool> restored_state = this->get_initial_state();
-  const bool enabled = restored_state.value_or(this->parent_->get_settings_keepalive_enabled());
-  this->parent_->set_settings_keepalive_enabled(enabled);
-  this->publish_state(enabled);
-}
-
-void AllpowersBLESettingsKeepaliveSwitch::write_state(bool state) {
-  this->parent_->set_settings_keepalive_enabled(state);
-  this->publish_state(state);
-}
-
-void AllpowersBLESettingsKeepaliveIntervalNumber::setup() {
-  this->preference_ = this->make_entity_preference<float>();
-
-  float minutes;
-  if (!this->preference_.load(&minutes) || !std::isfinite(minutes) || minutes < MIN_SETTINGS_KEEPALIVE_MINUTES ||
-      minutes > MAX_SETTINGS_KEEPALIVE_MINUTES) {
-    minutes = static_cast<float>(this->parent_->get_settings_keepalive_interval()) / MILLISECONDS_PER_MINUTE;
-  }
-
-  this->parent_->set_settings_keepalive_interval(static_cast<uint32_t>(minutes * MILLISECONDS_PER_MINUTE));
-  this->publish_state(minutes);
-}
-
-void AllpowersBLESettingsKeepaliveIntervalNumber::control(float value) {
-  if (this->has_state() && value == this->state)
-    return;
-  this->parent_->set_settings_keepalive_interval(static_cast<uint32_t>(value * MILLISECONDS_PER_MINUTE));
-  this->preference_.save(&value);
-  this->publish_state(value);
-}
-
-void AllpowersBLESettingsKeepaliveButton::press_action() { this->parent_->send_settings_keepalive_now(); }
-
-void AllpowersBLEStationNameTextSensor::setup() {
-  this->preference_ = this->make_entity_preference<StationNamePreference>(PREFERENCE_VERSION);
-  if (this->parent_ == nullptr) {
-    ESP_LOGE(TAG, "Station-name text sensor has no parent component");
-    return;
-  }
-
-  StationNamePreference stored{};
-  if (!this->preference_.load(&stored)) {
-    this->publish_state("");
-    return;
-  }
-
-  const uint64_t current_address = this->parent_->get_station_address();
-  if (stored.station_address != current_address) {
-    if (stored.name_length != 0) {
-      StationNamePreference cleared{};
-      cleared.station_address = current_address;
-      if (this->preference_.save(&cleared)) {
-        ESP_LOGI(TAG, "Cleared stored station name because the configured BLE MAC address changed");
-      } else {
-        ESP_LOGW(TAG, "Failed to clear stored station name after the configured BLE MAC address changed");
-      }
-    }
-    this->stored_station_address_ = current_address;
-    this->stored_name_.clear();
-    this->publish_state("");
-    return;
-  }
-
-  this->stored_station_address_ = stored.station_address;
-  if (stored.name_length == 0) {
-    this->publish_state("");
-    return;
-  }
-  if (stored.name_length > STORED_NAME_CAPACITY) {
-    ESP_LOGW(TAG, "Ignoring invalid stored station-name length");
-    this->stored_name_.clear();
-    this->publish_state("");
-    return;
-  }
-
-  std::string restored_name(stored.name, stored.name_length);
-  std::string normalized_name;
-  if (!this->parent_->normalize_station_name_(restored_name, &normalized_name)) {
-    ESP_LOGW(TAG, "Ignoring invalid station name stored in flash");
-    this->stored_name_.clear();
-    this->publish_state("");
-    return;
-  }
-
-  // The value was already persisted. Restore it directly so boot never queues
-  // a redundant preference write.
-  this->stored_name_ = normalized_name;
-  this->publish_state(normalized_name);
-}
-
-void AllpowersBLEStationNameTextSensor::store_and_publish(const std::string &name, uint64_t station_address,
-                                                          const char *source) {
-  if (station_address == 0) {
-    ESP_LOGW(TAG, "Cannot persist station name from %s without a configured BLE MAC address", source);
-    this->publish_state(name);
-    return;
-  }
-
-  if (this->stored_station_address_ == station_address && this->stored_name_ == name) {
-    if (!this->has_state() || this->state != name)
-      this->publish_state(name);
-    return;
-  }
-
-  StationNamePreference stored{};
-  stored.station_address = station_address;
-  stored.name_length = static_cast<uint8_t>(name.size());
-  std::copy(name.begin(), name.end(), stored.name);
-  if (!this->preference_.save(&stored)) {
-    ESP_LOGW(TAG, "Failed to persist station name received from %s", source);
-  } else {
-    this->stored_station_address_ = station_address;
-    this->stored_name_ = name;
-  }
-
-  this->publish_state(name);
-}
-
-bool AllpowersBLEStationNameTextSensor::publish_stored(uint64_t station_address, std::string *stored_name) {
-  if (stored_name != nullptr)
-    stored_name->clear();
-  if (station_address == 0 || this->stored_station_address_ != station_address || this->stored_name_.empty())
-    return false;
-
-  if (stored_name != nullptr)
-    *stored_name = this->stored_name_;
-  if (!this->has_state() || this->state != this->stored_name_)
-    this->publish_state(this->stored_name_);
-  return true;
-}
-
-void AllpowersBLEEcoShutdownTimeSelect::publish_hours(uint8_t hours) {
-  const auto option = std::find(ECO_SHUTDOWN_HOURS.begin(), ECO_SHUTDOWN_HOURS.end(), hours);
-  if (option == ECO_SHUTDOWN_HOURS.end()) {
-    // Preserve unknown protocol values in the parent snapshot, but do not
-    // claim that one of the four verified UI options is active.
-    this->clear_state();
-    return;
-  }
-  this->publish_state(static_cast<size_t>(option - ECO_SHUTDOWN_HOURS.begin()));
-}
-
-void AllpowersBLEEcoShutdownTimeSelect::control(size_t index) {
-  if (this->parent_ == nullptr) {
-    ESP_LOGE(TAG, "ALLPOWERS ECO shutdown time select has no parent component");
-    return;
-  }
-  if (index >= ECO_SHUTDOWN_HOURS.size()) {
-    ESP_LOGE(TAG, "Invalid ECO shutdown time option index: %u", static_cast<unsigned>(index));
-    return;
-  }
-  this->parent_->request_eco_shutdown_time(ECO_SHUTDOWN_HOURS[index]);
-}
-
-void AllpowersBLEWorkModeSelect::publish_mode(uint8_t mode) {
-  const auto option = std::find(WORK_MODES.begin(), WORK_MODES.end(), mode);
-  if (option == WORK_MODES.end()) {
-    // Protocol value 3 is reserved by the two-bit field. Keep it in the parent
-    // snapshot for future writes, but do not present it as a known mode.
-    this->clear_state();
-    return;
-  }
-  this->publish_state(static_cast<size_t>(option - WORK_MODES.begin()));
-}
-
-void AllpowersBLEWorkModeSelect::control(size_t index) {
-  if (this->parent_ == nullptr) {
-    ESP_LOGE(TAG, "ALLPOWERS work mode select has no parent component");
-    return;
-  }
-  if (index >= WORK_MODES.size()) {
-    ESP_LOGE(TAG, "Invalid work mode option index: %u", static_cast<unsigned>(index));
-    return;
-  }
-  this->parent_->request_work_mode(WORK_MODES[index]);
-}
-
-void AllpowersBLEDeviceNameText::control(const std::string &value) {
-  if (this->parent_ == nullptr) {
-    ESP_LOGE(TAG, "ALLPOWERS device-name text has no parent component");
-    return;
-  }
-  this->parent_->request_device_name(value);
 }
 
 }  // namespace esphome::allpowers_ble
