@@ -13,6 +13,11 @@ defaults:
   # allpowers_mac: "AA:BB:CC:DD:EE:FF"
   allpowers_service_uuid: "FFF0"
   allpowers_stale_timeout: 30s
+  # Connection health: ask the station to resume status broadcasts every 20s,
+  # then recycle a GATT link that yields no valid packet for 45s. The watchdog
+  # must be longer than the keepalive interval.
+  allpowers_keepalive_interval: 20s
+  allpowers_watchdog_timeout: 45s
   # Command 0x35 was found in the official app but is only enabled there for
   # SOLIX/VOLIX P1800. Leave false unless the exact station is being tested.
   allpowers_enable_experimental_device_name: "false"
@@ -137,6 +142,8 @@ allpowers_ble:
     ble_client_id: ${allpowers_id}_ble_client
     service_uuid: ${allpowers_service_uuid}
     stale_timeout: ${allpowers_stale_timeout}
+    keepalive_interval: ${allpowers_keepalive_interval}
+    watchdog_timeout: ${allpowers_watchdog_timeout}
     enable_experimental_device_name: ${allpowers_enable_experimental_device_name}
 
 sensor:
