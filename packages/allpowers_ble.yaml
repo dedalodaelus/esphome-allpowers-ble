@@ -26,6 +26,9 @@ defaults:
   # runtime so the Home Assistant switch can fully stop discovery/retries.
   allpowers_connect_at_boot: "true"
   allpowers_bootstrap_delay: 10s
+  # Keep the client idle briefly so an active-scan response can provide the
+  # advertised name before the same advertisement starts a GATT connection.
+  allpowers_advertised_name_wait_timeout: 3s
 
   # Shared BLE scanner tuning. These values provide continuous scanning and
   # are compatible with a node that also acts as a Bluetooth Proxy.
@@ -73,11 +76,11 @@ esphome:
                     return id(${allpowers_id}_ble_connection_requested);
                 then:
                   - logger.log: "Enabling persistent BLE connection to ${allpowers_name}"
-                  - lambda: |-
-                      id(${allpowers_id}_ble_client).set_auto_connect(true);
-                      id(${allpowers_id}_ble_client).set_enabled(true);
+                  - script.execute: ${allpowers_id}_prepare_ble_connection
           else:
+            - script.stop: ${allpowers_id}_prepare_ble_connection
             - lambda: |-
+                id(${allpowers_id}_advertised_name_capture_pending) = false;
                 id(${allpowers_id}_ble_client).set_auto_connect(false);
                 id(${allpowers_id}_ble_client).set_enabled(false);
 
@@ -89,6 +92,42 @@ globals:
     type: bool
     restore_value: false
     initial_value: '${allpowers_connect_at_boot}'
+
+  # Per-connection advertisement gate. The bounded timeout prevents a station
+  # that omits its local name from blocking the BLE connection indefinitely.
+  - id: ${allpowers_id}_advertised_name_captured
+    type: bool
+    restore_value: false
+    initial_value: "false"
+
+  - id: ${allpowers_id}_advertised_name_capture_pending
+    type: bool
+    restore_value: false
+    initial_value: "false"
+
+script:
+  - id: ${allpowers_id}_prepare_ble_connection
+    mode: restart
+    then:
+      # Prevent BLEClient from claiming the first matching advertisement while
+      # the tracker waits for a possible active-scan response containing the
+      # complete local name. Scanning itself remains active.
+      - lambda: |-
+          id(${allpowers_id}_advertised_name_capture_pending) = true;
+          id(${allpowers_id}_ble_client).set_auto_connect(false);
+      - if:
+          condition:
+            lambda: |-
+              return !id(${allpowers_id}_advertised_name_captured);
+          then:
+            - delay: ${allpowers_advertised_name_wait_timeout}
+      - lambda: |-
+          id(${allpowers_id}_advertised_name_capture_pending) = false;
+          if (!id(${allpowers_id}_ble_connection_requested)) {
+            return;
+          }
+          id(${allpowers_id}_ble_client).set_auto_connect(true);
+          id(${allpowers_id}_ble_client).set_enabled(true);
 
 esp32_ble_tracker:
   scan_parameters:
@@ -103,6 +142,11 @@ esp32_ble_tracker:
         - lambda: |-
             if (!x.get_name().empty()) {
               id(${allpowers_id}_ble_advertised_name).publish_state(x.get_name());
+              id(${allpowers_id}_advertised_name_captured) = true;
+              if (id(${allpowers_id}_advertised_name_capture_pending) &&
+                  id(${allpowers_id}_ble_connection_requested)) {
+                id(${allpowers_id}_prepare_ble_connection).execute();
+              }
             }
 
 ble_client:
@@ -130,6 +174,9 @@ ble_client:
               - text_sensor.template.publish:
                   id: ${allpowers_id}_ble_connection_state
                   state: "Searching"
+              - lambda: |-
+                  id(${allpowers_id}_advertised_name_captured) = false;
+              - script.execute: ${allpowers_id}_prepare_ble_connection
             else:
               - logger.log: "${allpowers_name} disconnected; BLE connection disabled"
               - text_sensor.template.publish:
@@ -365,17 +412,19 @@ switch:
           state: "Searching"
       - lambda: |-
           id(${allpowers_id}_ble_connection_requested) = true;
-          id(${allpowers_id}_ble_client).set_auto_connect(true);
-          id(${allpowers_id}_ble_client).set_enabled(true);
+          id(${allpowers_id}_advertised_name_captured) = false;
           id(${allpowers_id}_ble_connection_control).publish_state(true);
+      - script.execute: ${allpowers_id}_prepare_ble_connection
 
     turn_off_action:
       - logger.log: "Disabling BLE connection to ${allpowers_name}"
       - text_sensor.template.publish:
           id: ${allpowers_id}_ble_connection_state
           state: "Disabled"
+      - script.stop: ${allpowers_id}_prepare_ble_connection
       - lambda: |-
           id(${allpowers_id}_ble_connection_requested) = false;
+          id(${allpowers_id}_advertised_name_capture_pending) = false;
           id(${allpowers_id}_ble_client).set_auto_connect(false);
           id(${allpowers_id}_ble_client).set_enabled(false);
           id(${allpowers_id}_ble_connection_control).publish_state(false);
