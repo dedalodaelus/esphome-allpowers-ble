@@ -315,6 +315,14 @@ starts the connection immediately; otherwise the connection proceeds after
 `allpowers_advertised_name_wait_timeout`, so a device that omits its name cannot block telemetry.
 Active scanning must remain enabled for a complete name carried in scan-response data.
 
+## Development container
+
+The repository includes a development container for VS Code and GitHub Codespaces. In VS Code,
+install Docker and the Dev Containers extension, open the repository, and run
+**Dev Containers: Reopen in Container**. The container creates an isolated Python environment and
+installs the pinned dependencies from `requirements-lint.txt` and `requirements-ci.txt`
+automatically.
+
 ## Local validation
 
 Install the pinned dependencies first:

@@ -38,6 +38,8 @@ for published releases.
   Home Assistant button for a one-shot resend.
 - Flash-backed station name shared by BLE advertisements and command `0x35`,
   with invalid-name filtering, write deduplication and MAC-bound invalidation.
+- Development container for VS Code and GitHub Codespaces with the pinned lint
+  and ESPHome dependencies installed automatically.
 
 ### Changed
 
