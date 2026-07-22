@@ -40,6 +40,8 @@ for published releases.
   with invalid-name filtering, write deduplication and MAC-bound invalidation.
 - Development container for VS Code and GitHub Codespaces with the pinned lint
   and ESPHome dependencies installed automatically.
+- Native C++ protocol regression tests for the ALLPOWERS BLE protocol implementation.
+  CI execution of the native protocol test binary during validation.
 
 ### Changed
 
@@ -55,6 +57,10 @@ for published releases.
   write failures instead of leaving an unusable link marked as established.
 - Retry the optional command-`0x35` name query up to three times per connection
   and cancel the remaining attempts after a valid response.
+- Refactored the ALLPOWERS BLE C++ implementation by splitting
+  responsibilities into dedicated protocol, transport, and entity modules.
+- Updated the validation workflow to lint and format all split C++
+  source/header files and to run the native protocol tests as part of code quality checks.
 
 ### Fixed
 
