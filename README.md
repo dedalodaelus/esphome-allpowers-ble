@@ -58,6 +58,8 @@ same status frame format. See [`docs/compatibility.md`](docs/compatibility.md).
   - OFF disconnects and stops attempting to connect
 - Active connection health: requests a fresh status broadcast every 20 seconds and recycles a
   GATT link after 45 seconds without any valid protocol packet
+- Optional R600 settings keepalive: resends the last station-reported settings every 9 minutes
+  to work around the observed 10-minute disconnect; disabled by default due to beep
 - Telemetry becomes unknown after BLE disconnection or stale data
 - Commands are rejected until the BLE link and telemetry are valid
 - ECO mode, shutdown-time, work-mode and car-charger commands are rejected until a fresh
@@ -135,6 +137,8 @@ Complete configurations are provided in:
 | `allpowers_stale_timeout` | `30s` | Time before telemetry becomes unknown |
 | `allpowers_keepalive_interval` | `20s` | Interval between status-broadcast refresh requests; minimum `5s` |
 | `allpowers_watchdog_timeout` | `45s` | Silence before forcing reconnection; minimum `10s` and longer than keepalive |
+| `allpowers_enable_settings_keepalive` | `false` | Opt in to periodically resending the latest settings snapshot |
+| `allpowers_settings_keepalive_interval` | `9min` | Settings-resend interval; minimum `1min` and should remain below the station cutoff |
 | `allpowers_enable_experimental_device_name` | `false` | Opt in to command-`0x35` name query/update |
 | `allpowers_connect_at_boot` | `true` | Start persistent searching after boot |
 | `allpowers_bootstrap_delay` | `10s` | Delay before initial BLE search |
@@ -214,6 +218,15 @@ The status request and default timing are behavioral observations from
 this MIT implementation was written independently and does not incorporate its source code. The behavior
 has not yet been physically verified on every model, so retain the defaults until device logs demonstrate
 a need to tune them.
+
+The separate settings keepalive targets a different R600 behavior: the station can close a healthy BLE
+connection at about 10 minutes even though notifications continue and the status requests succeed. Enable
+it explicitly with `allpowers_enable_settings_keepalive: "true"`. At the configured interval, the component
+reuses the most recent complete settings bitmap and ECO timeout reported by the station and sends them back
+unchanged as command `0x02`; it skips the write if no settings snapshot was received in that connection.
+An output-control or settings write restarts this interval, avoiding an immediate redundant keepalive. The
+default interval is 9 minutes. Keep it below the observed cutoff. This is an experimental workaround, and
+an accepted settings command may make the R600 beep every time it is sent.
 
 ### Optional Home Assistant unavailable controls
 

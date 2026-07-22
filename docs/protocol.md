@@ -51,6 +51,17 @@ Notification-subscription failures and asynchronous GATT write failures also sch
 from the component loop. This avoids performing GATT teardown inside an ESP-IDF callback while ensuring that
 ESPHome rediscovers services and characteristic handles instead of retaining an unusable session.
 
+An independent, disabled-by-default settings keepalive is available for R600 firmware that appears to close
+an otherwise healthy GATT session after roughly ten minutes. When enabled, the component resends the latest
+complete command-`0x03` settings snapshot as command `0x02` every 9 minutes by default. It never constructs
+settings from defaults and skips the write when no snapshot has been received during the current connection.
+This workaround is separate from the 20-second status request because that request does not appear to reset
+the R600's station-side connection timer. A queued output-control or settings write restarts the settings-
+keepalive interval, avoiding an unnecessary repeat immediately after a user command. The interval should
+remain below the observed disconnect timeout.
+Accepted settings writes can produce an audible confirmation, which is why this behavior requires explicit
+opt-in and hardware validation.
+
 This behavior was independently implemented from the public behavioral description and observed command
 in `R0b0To/allpowers-companion`; no GPL-licensed source code was copied. It supplements rather than
 replaces `stale_timeout`: the latter invalidates old entity values, while the watchdog repairs an apparently

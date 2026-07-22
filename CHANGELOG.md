@@ -29,6 +29,8 @@ for published releases.
   a fresh status broadcast immediately after subscribing and periodically.
 - Configurable 45-second connection watchdog that recycles an apparently
   connected GATT link after valid protocol traffic stops.
+- Experimental, disabled-by-default R600 settings keepalive (due to beep) that resends the
+  last station-reported settings snapshot every 9 minutes by default.
 
 ### Changed
 
