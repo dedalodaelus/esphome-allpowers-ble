@@ -2,7 +2,13 @@ name: Build and Code Quality
 
 on:
   push:
+    branches:
+      - main
+      - devel
   pull_request:
+    branches:
+      - main
+      - devel
   workflow_dispatch:
 
 permissions:
@@ -106,6 +112,17 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-ci.txt
 
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: >-
+            platformio-${{ runner.os }}-${{ matrix.board }}-
+            ${{ hashFiles('requirements-ci.txt') }}
+          restore-keys: |
+            platformio-${{ runner.os }}-${{ matrix.board }}-
+            platformio-${{ runner.os }}-
+
       - name: Install ESPHome
         run: |
           python -m pip install --upgrade pip
@@ -117,3 +134,21 @@ jobs:
             -s test_board "${{ matrix.board }}" \
             -s test_device_name "${{ matrix.device_name }}" \
             compile tests/ci.yaml
+
+  ci-success:
+    name: CI passed
+    if: always()
+    needs:
+      - quality
+      - build
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Verify required jobs
+        env:
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          test "$QUALITY_RESULT" = "success"
+          test "$BUILD_RESULT" = "success"
