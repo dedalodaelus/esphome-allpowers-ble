@@ -146,8 +146,7 @@ esp32_ble_tracker:
     - mac_address: ${allpowers_mac}
       then:
         - lambda: |-
-            if (!x.get_name().empty()) {
-              id(${allpowers_id}_ble_advertised_name).publish_state(x.get_name());
+            if (id(${allpowers_id}).update_station_name(x.get_name(), "BLE advertisement")) {
               id(${allpowers_id}_advertised_name_captured) = true;
               if (id(${allpowers_id}_advertised_name_capture_pending) &&
                   id(${allpowers_id}_ble_connection_requested)) {
@@ -332,16 +331,6 @@ binary_sensor:
       entity_category: diagnostic
 
 text_sensor:
-  # Read-only name announced by the station during active BLE scanning. Unlike
-  # the optional text control below, publishing it never writes to the station.
-  - platform: template
-    id: ${allpowers_id}_ble_advertised_name
-    name: "BLE Advertised Name"
-    device_id: ${allpowers_id}_device
-    icon: mdi:bluetooth
-    entity_category: diagnostic
-    update_interval: never
-
   # Desired-policy summary for humans. It is not a fourth source of truth:
   # Disabled means retries are disabled, Searching means enabled but not
   # connected, and Connected is set by the BLE client's on_connect callback.
@@ -357,6 +346,14 @@ text_sensor:
   # or ESP32 firmware versions of the BLE gateway.
   - platform: allpowers_ble
     allpowers_ble_id: ${allpowers_id}
+    # Unified read-only name. Valid values received from either an advertisement
+    # or command 0x35 are persisted and restored only for this station's MAC.
+    station_name:
+      id: ${allpowers_id}_ble_advertised_name
+      name: "Device Name"
+      device_id: ${allpowers_id}_device
+      entity_category: diagnostic
+
     hardware_version:
       id: ${allpowers_id}_hardware_version
       name: "Hardware Version"
