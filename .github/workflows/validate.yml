@@ -97,7 +97,7 @@ jobs:
           /tmp/allpowers-ble-protocol-tests
 
       - name: Python protocol regression tests
-        run: python tests/test_protocol.py
+        run: python -m pytest tests
 
   build:
     name: Build ${{ matrix.name }}

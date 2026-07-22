@@ -63,7 +63,7 @@ clang-format --dry-run --Werror \
 cpplint \
   components/allpowers_ble/allpowers_ble.h \
   components/allpowers_ble/allpowers_ble.cpp
-python tests/test_protocol.py
+python -m pytest tests
 esphome config tests/ci.yaml
 esphome compile tests/ci.yaml
 ```

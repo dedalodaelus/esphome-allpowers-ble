@@ -775,27 +775,3 @@ def test_unsupported_work_mode_is_rejected() -> None:
             pass
         else:
             raise AssertionError(f"unsupported work mode accepted: {mode}")
-
-
-if __name__ == "__main__":
-    test_status_parser()
-    test_settings_parser()
-    test_invalid_notifications_are_rejected()
-    test_all_control_combinations()
-    test_eco_write_preserves_unmanaged_settings()
-    test_eco_shutdown_time_preserves_settings_bitmap()
-    test_unsupported_eco_shutdown_time_is_rejected()
-    test_work_mode_preserves_other_settings()
-    test_car_charger_preserves_other_settings()
-    test_device_name_query_and_utf8_update()
-    test_device_name_response_and_limits()
-    test_device_name_query_retry_policy()
-    test_station_name_persistence_accepts_both_sources_without_duplicate_writes()
-    test_invalid_station_names_reuse_the_value_for_the_same_mac()
-    test_station_name_is_cleared_once_when_the_mac_changes()
-    test_status_request_and_connection_health_ordering()
-    test_settings_keepalive_is_opt_in_and_snapshot_gated()
-    test_initial_settings_keepalive_waits_only_for_a_safe_snapshot()
-    test_manual_settings_keepalive_does_not_require_periodic_mode()
-    test_unsupported_work_mode_is_rejected()
-    print("Protocol tests passed")

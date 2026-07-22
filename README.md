@@ -352,7 +352,7 @@ yamllint \
   examples \
   tests/ci.yaml \
   home_assistant/allpowers_ble_controls.yaml.example
-python tests/test_protocol.py
+python -m pytest tests
 ```
 
 Compile both targets used by GitHub Actions:
