@@ -204,6 +204,67 @@ def device_name_query_action(
     return "wait"
 
 
+INVALID_STATION_NAMES = {
+    "unknown",
+    "(unknown)",
+    "unknown device",
+    "unavailable",
+    "not available",
+    "not found",
+    "not set",
+    "n/a",
+    "none",
+    "null",
+    "undefined",
+    "failed",
+    "error",
+    "-",
+    "--",
+    "?",
+}
+
+
+def normalize_station_name(name: str) -> str | None:
+    """Model the shared BLE-advertisement and command-0x35 validation."""
+
+    normalized = name.strip()
+    if not normalized or len(normalized.encode("utf-8")) > MAX_DEVICE_NAME_LENGTH:
+        return None
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in normalized):
+        return None
+    if normalized.lower() in INVALID_STATION_NAMES:
+        return None
+    return normalized
+
+
+def station_name_action(
+    *,
+    configured_mac: str,
+    stored_mac: str,
+    stored_name: str,
+    received_name: str | None = None,
+) -> tuple[str, str, str, int]:
+    """Return published name, stored MAC/name, and required flash writes."""
+
+    writes = 0
+    if stored_mac != configured_mac:
+        if stored_name:
+            writes += 1
+        stored_mac = configured_mac
+        stored_name = ""
+
+    if received_name is None:
+        return stored_name, stored_mac, stored_name, writes
+
+    normalized = normalize_station_name(received_name)
+    if normalized is None:
+        return stored_name, stored_mac, stored_name, writes
+    if normalized != stored_name:
+        stored_name = normalized
+        writes += 1
+    return stored_name, stored_mac, stored_name, writes
+
+
 def settings_keepalive_action(
     *, enabled: bool, snapshot_received: bool, now_ms: int, last_keepalive_ms: int
 ) -> str:
@@ -502,6 +563,93 @@ def test_device_name_query_retry_policy() -> None:
     )
 
 
+def test_station_name_persistence_accepts_both_sources_without_duplicate_writes() -> (
+    None
+):
+    """A valid name is stored once regardless of which source repeats it."""
+
+    restored = station_name_action(
+        configured_mac="AA:BB:CC:DD:EE:FF",
+        stored_mac="AA:BB:CC:DD:EE:FF",
+        stored_name="AP R600 V2.0",
+    )
+    assert restored == (
+        "AP R600 V2.0",
+        "AA:BB:CC:DD:EE:FF",
+        "AP R600 V2.0",
+        0,
+    )
+
+    advertised = station_name_action(
+        configured_mac="AA:BB:CC:DD:EE:FF",
+        stored_mac="AA:BB:CC:DD:EE:FF",
+        stored_name="",
+        received_name="  AP R600 V2.0  ",
+    )
+    assert advertised == (
+        "AP R600 V2.0",
+        "AA:BB:CC:DD:EE:FF",
+        "AP R600 V2.0",
+        1,
+    )
+
+    command_0x35 = station_name_action(
+        configured_mac=advertised[1],
+        stored_mac=advertised[1],
+        stored_name=advertised[2],
+        received_name="AP R600 V2.0",
+    )
+    assert command_0x35 == (
+        "AP R600 V2.0",
+        "AA:BB:CC:DD:EE:FF",
+        "AP R600 V2.0",
+        0,
+    )
+
+
+def test_invalid_station_names_reuse_the_value_for_the_same_mac() -> None:
+    """Unavailable source values must neither erase nor overwrite a valid name."""
+
+    for invalid_name in ("", " Unknown ", "N/A", "undefined", "?", "bad\x00name"):
+        assert station_name_action(
+            configured_mac="AA:BB:CC:DD:EE:FF",
+            stored_mac="AA:BB:CC:DD:EE:FF",
+            stored_name="R600 Garaje",
+            received_name=invalid_name,
+        ) == (
+            "R600 Garaje",
+            "AA:BB:CC:DD:EE:FF",
+            "R600 Garaje",
+            0,
+        )
+
+
+def test_station_name_is_cleared_once_when_the_mac_changes() -> None:
+    """Never expose another station's persisted name after a MAC change."""
+
+    changed = station_name_action(
+        configured_mac="11:22:33:44:55:66",
+        stored_mac="AA:BB:CC:DD:EE:FF",
+        stored_name="R600 Garaje",
+    )
+    assert changed == ("", "11:22:33:44:55:66", "", 1)
+
+    already_empty = station_name_action(
+        configured_mac="11:22:33:44:55:66",
+        stored_mac="AA:BB:CC:DD:EE:FF",
+        stored_name="",
+    )
+    assert already_empty == ("", "11:22:33:44:55:66", "", 0)
+
+    learned_again = station_name_action(
+        configured_mac=changed[1],
+        stored_mac=changed[1],
+        stored_name=changed[2],
+        received_name="R600 Taller",
+    )
+    assert learned_again == ("R600 Taller", "11:22:33:44:55:66", "R600 Taller", 1)
+
+
 def test_status_request_and_connection_health_ordering() -> None:
     """Lock the observed request bytes and prefer reconnect at the deadline."""
 
@@ -642,6 +790,9 @@ if __name__ == "__main__":
     test_device_name_query_and_utf8_update()
     test_device_name_response_and_limits()
     test_device_name_query_retry_policy()
+    test_station_name_persistence_accepts_both_sources_without_duplicate_writes()
+    test_invalid_station_names_reuse_the_value_for_the_same_mac()
+    test_station_name_is_cleared_once_when_the_mac_changes()
     test_status_request_and_connection_health_ordering()
     test_settings_keepalive_is_opt_in_and_snapshot_gated()
     test_initial_settings_keepalive_waits_only_for_a_safe_snapshot()
