@@ -21,6 +21,8 @@ for published releases.
   entities for safe Home Assistant controls.
 - Experimental, disabled-by-default command-`0x35` Bluetooth name query and
   update with UTF-8, byte-length and response validation.
+- Read-only Bluetooth advertised-name diagnostic captured passively without
+  requiring or enabling the experimental rename command.
 
 ### Changed
 

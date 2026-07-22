@@ -249,6 +249,11 @@ R600 accepts the command. Consequently, both the package option
 must be enabled deliberately. The entity is non-optimistic: it remains unknown or retains its last
 confirmed value unless the station returns a valid command-`0x35` name response.
 
+The separate `BLE Advertised Name` diagnostic is always read-only. It captures the name passively
+from advertisements matching `allpowers_mac`, so it does not depend on command `0x35` support or
+send any request to the station. Active scanning must remain enabled for the complete advertised
+name to be obtained from scan-response data.
+
 ## Local validation
 
 Install the pinned dependencies first:
