@@ -48,6 +48,8 @@ same status frame format. See [`docs/compatibility.md`](docs/compatibility.md).
 - Power-station hardware and firmware version diagnostics
 - Independent car charger/12 V automotive socket state and control,
   disabled by default while hardware support is validated
+- Experimental Bluetooth device-name query and update using command `0x35`;
+  disabled by default and only evidenced by the official app for SOLIX/VOLIX P1800
 - Charging and discharging indicators derived from power flow
 - BLE connection state: `Disabled`, `Searching` or `Connected`
 - Persistent connection control:
@@ -128,6 +130,7 @@ Complete configurations are provided in:
 | `allpowers_mac` | Required | Stable BLE MAC address of the power station |
 | `allpowers_service_uuid` | `FFF0` | Configurable service UUID |
 | `allpowers_stale_timeout` | `30s` | Time before telemetry becomes unknown |
+| `allpowers_enable_experimental_device_name` | `false` | Opt in to command-`0x35` name query/update |
 | `allpowers_connect_at_boot` | `true` | Start persistent searching after boot |
 | `allpowers_bootstrap_delay` | `10s` | Delay before initial BLE search |
 | `allpowers_scan_interval` | `320ms` | ESP32 BLE scan interval |
@@ -166,6 +169,7 @@ bluetooth_proxy:
 | ECO Shutdown Time | Select |
 | Work Mode | Select |
 | Car Charger | Switch |
+| Bluetooth Name (Experimental) | Text |
 | AC Output Status | Binary sensor |
 | DC Output Status | Binary sensor |
 | Light Status | Binary sensor |
@@ -236,6 +240,14 @@ This prevents the generic package from assuming that every station with the ALLP
 R600 settings protocol.
 
 AC frequency is experimental and disabled by default. See [`docs/protocol.md`](docs/protocol.md).
+
+Bluetooth renaming is more narrowly supported than the telemetry protocol. The extracted official
+Android app encodes command `0x35` as UTF-8 with a 96-byte maximum, but explicitly permits the BLE
+rename path only for `SOLIX P1800`/`VOLIX P1800`. There is no evidence in the supplied app that an
+R600 accepts the command. Consequently, both the package option
+`allpowers_enable_experimental_device_name` and the disabled-by-default Home Assistant text entity
+must be enabled deliberately. The entity is non-optimistic: it remains unknown or retains its last
+confirmed value unless the station returns a valid command-`0x35` name response.
 
 ## Local validation
 

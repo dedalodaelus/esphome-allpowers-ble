@@ -19,6 +19,8 @@ for published releases.
 - Power-station hardware and firmware version diagnostics from command `0x03`.
 - Separate `Settings Available` readiness and confirmed `ECO Mode Status`
   entities for safe Home Assistant controls.
+- Experimental, disabled-by-default command-`0x35` Bluetooth name query and
+  update with UTF-8, byte-length and response validation.
 
 ### Changed
 

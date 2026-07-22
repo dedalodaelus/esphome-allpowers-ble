@@ -102,6 +102,25 @@ The official application sends a separate buzzer-control command after selecting
 intentionally does not reproduce that unrelated side effect; Work Mode changes only bits 1-2 of the settings
 bitmap.
 
+## Experimental device name: command `0x35`
+
+The supplied official Android application contains a separate implementation for SOLIX/VOLIX P1800:
+
+```text
+A5 65 00 B1 01 LL 35 [LL UTF-8 bytes] XX
+```
+
+- An empty payload queries the stored name.
+- A non-empty payload updates it.
+- The application truncates at a UTF-8 code-point boundary to at most 96 bytes.
+- `XX` is the XOR of all preceding bytes.
+- A response uses command `0x35` and carries the current UTF-8 name.
+
+The component validates length, checksum and UTF-8, and publishes only a returned value. It does not
+optimistically claim that a write succeeded. This command is disabled by default because the app gates it
+to SOLIX/VOLIX P1800; it has not been demonstrated on the R600 or the other families supported by the
+telemetry parser. Enabling it on another model is an explicit hardware experiment, not a compatibility claim.
+
 ## Experimental field
 
 AC frequency is based on an unmerged upstream contribution and is exposed as an experimental,
@@ -117,6 +136,7 @@ The currently verified implementation does not expose:
 - Battery temperature, voltage or current
 - Internal alarms and error codes
 - Remaining energy in watt-hours
+- Device-name changes on models other than the P1800 family
 
 These features should only be added after their state and write behavior are validated on real
 hardware. Unknown settings bits must continue to be preserved during every write.
