@@ -49,6 +49,8 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   void set_service_uuid32(uint32_t uuid) { this->service_uuid_ = espbt::ESPBTUUID::from_uint32(uuid); }
   void set_service_uuid128(const uint8_t *uuid) { this->service_uuid_ = espbt::ESPBTUUID::from_raw(uuid); }
   void set_stale_timeout(uint32_t timeout_ms) { this->stale_timeout_ms_ = timeout_ms; }
+  void set_keepalive_interval(uint32_t interval_ms) { this->keepalive_interval_ms_ = interval_ms; }
+  void set_watchdog_timeout(uint32_t timeout_ms) { this->watchdog_timeout_ms_ = timeout_ms; }
   void set_experimental_device_name_enabled(bool enabled) { this->experimental_device_name_enabled_ = enabled; }
 
   void set_soc_sensor(sensor::Sensor *sensor) { this->soc_sensor_ = sensor; }
@@ -115,6 +117,7 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   static constexpr uint8_t SETTINGS_STATUS_COMMAND = 0x03;
   static constexpr uint8_t DEVICE_NAME_COMMAND = 0x35;
   static constexpr size_t MAX_DEVICE_NAME_LENGTH = 96;
+  static constexpr uint32_t DEVICE_NAME_QUERY_DELAY_MS = 500;
 
   // Verified offsets in the status notification format used by the upstream
   // implementation. Keeping them named avoids scattering protocol magic
@@ -155,6 +158,10 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   void process_device_name_notification_(const uint8_t *data, uint16_t length);
   bool request_device_name_query_();
   bool send_device_name_frame_(const std::string &name);
+  bool send_status_request_();
+  void start_connection_health_();
+  void schedule_forced_reconnect_(const char *reason);
+  void request_forced_reconnect_(const char *reason);
   bool valid_utf8_(const uint8_t *data, size_t length) const;
   bool send_control_frame_();
   bool send_settings_frame_();
@@ -194,8 +201,18 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   uint8_t eco_time_{0};
 
   uint32_t stale_timeout_ms_{30000};
+  uint32_t keepalive_interval_ms_{20000};
+  uint32_t watchdog_timeout_ms_{45000};
   uint32_t last_valid_packet_ms_{0};
   uint32_t last_settings_packet_ms_{0};
+  uint32_t last_protocol_packet_ms_{0};
+  uint32_t last_status_request_ms_{0};
+  bool connection_health_active_{false};
+  bool forced_reconnect_pending_{false};
+  const char *forced_reconnect_reason_{nullptr};
+  bool disconnect_requested_{false};
+  bool device_name_query_pending_{false};
+  uint32_t device_name_query_started_ms_{0};
 
   sensor::Sensor *soc_sensor_{nullptr};
   sensor::Sensor *input_power_sensor_{nullptr};

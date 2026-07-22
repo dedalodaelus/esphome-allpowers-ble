@@ -44,19 +44,18 @@ void AllpowersBLE::dump_config() {
   ESP_LOGCONFIG(TAG, "  Notify characteristic: 0x%04X", NOTIFY_UUID);
   ESP_LOGCONFIG(TAG, "  Write characteristic: 0x%04X", WRITE_UUID);
   ESP_LOGCONFIG(TAG, "  Stale timeout: %" PRIu32 " ms", this->stale_timeout_ms_);
+  ESP_LOGCONFIG(TAG, "  Status keepalive interval: %" PRIu32 " ms", this->keepalive_interval_ms_);
+  ESP_LOGCONFIG(TAG, "  Connection watchdog timeout: %" PRIu32 " ms", this->watchdog_timeout_ms_);
   ESP_LOGCONFIG(TAG, "  Experimental device-name command: %s", YESNO(this->experimental_device_name_enabled_));
 }
 
 void AllpowersBLE::loop() {
-  if (this->stale_timeout_ms_ == 0)
-    return;
-
   const uint32_t now = millis();
 
   // The GATT link can remain open when notifications stop. Telemetry and the
   // settings snapshot expire independently because their commands have
   // different payloads and safety requirements.
-  if (this->data_fresh_ && this->last_valid_packet_ms_ != 0 &&
+  if (this->stale_timeout_ms_ != 0 && this->data_fresh_ && this->last_valid_packet_ms_ != 0 &&
       now - this->last_valid_packet_ms_ > this->stale_timeout_ms_) {
     this->data_fresh_ = false;
     this->have_status_ = false;
@@ -68,7 +67,7 @@ void AllpowersBLE::loop() {
     ESP_LOGW(TAG, "No valid ALLPOWERS status packet received within the configured timeout");
   }
 
-  if (this->settings_fresh_ && this->last_settings_packet_ms_ != 0 &&
+  if (this->stale_timeout_ms_ != 0 && this->settings_fresh_ && this->last_settings_packet_ms_ != 0 &&
       now - this->last_settings_packet_ms_ > this->stale_timeout_ms_) {
     this->settings_fresh_ = false;
     this->have_settings_ = false;
@@ -76,6 +75,44 @@ void AllpowersBLE::loop() {
     this->publish_settings_available_(false);
     this->invalidate_settings_entities_();
     ESP_LOGW(TAG, "No valid ALLPOWERS settings packet received within the configured timeout");
+  }
+
+  if (this->node_state != espbt::ClientState::ESTABLISHED || this->disconnect_requested_)
+    return;
+
+  if (this->forced_reconnect_pending_) {
+    this->request_forced_reconnect_(this->forced_reconnect_reason_ != nullptr ? this->forced_reconnect_reason_
+                                                                              : "BLE session failure");
+    return;
+  }
+
+  if (!this->connection_health_active_)
+    return;
+
+  // The initial status request and optional device-name query both use FFF2.
+  // Space them so two writes are not submitted back-to-back during the GATT
+  // registration callback on controllers with a shallow write queue.
+  if (this->device_name_query_pending_ && now - this->device_name_query_started_ms_ >= DEVICE_NAME_QUERY_DELAY_MS) {
+    this->device_name_query_pending_ = false;
+    this->request_device_name_query_();
+  }
+
+  // A valid packet of any supported or unsupported command proves that the
+  // GATT link still transports protocol traffic. If none arrives, tear down
+  // the apparently connected link so BLEClient auto-connect can rediscover it.
+  if (now - this->last_protocol_packet_ms_ >= this->watchdog_timeout_ms_) {
+    this->request_forced_reconnect_("no valid protocol packet within watchdog timeout");
+    return;
+  }
+
+  // This observed request asks the station to resume its periodic status
+  // broadcast. Sending it on a fixed cadence is cheaper than reconnecting and
+  // mirrors the connection-health behavior independently implemented here
+  // from the documented allpowers-companion behavior.
+  if (now - this->last_status_request_ms_ >= this->keepalive_interval_ms_) {
+    this->last_status_request_ms_ = now;
+    if (!this->send_status_request_())
+      this->request_forced_reconnect_("periodic status request could not be queued");
   }
 }
 
@@ -92,6 +129,14 @@ void AllpowersBLE::reset_connection_state_() {
   this->have_settings_ = false;
   this->settings_fresh_ = false;
   this->last_settings_packet_ms_ = 0;
+  this->last_protocol_packet_ms_ = 0;
+  this->last_status_request_ms_ = 0;
+  this->connection_health_active_ = false;
+  this->forced_reconnect_pending_ = false;
+  this->forced_reconnect_reason_ = nullptr;
+  this->disconnect_requested_ = false;
+  this->device_name_query_pending_ = false;
+  this->device_name_query_started_ms_ = 0;
   if (this->connected_binary_sensor_ != nullptr)
     this->connected_binary_sensor_->publish_state(false);
   if (this->data_valid_binary_sensor_ != nullptr)
@@ -169,6 +214,7 @@ void AllpowersBLE::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
         // Finish node setup without exposing controls. A future reconnect can
         // retry discovery and notification registration from a clean state.
         this->node_state = espbt::ClientState::ESTABLISHED;
+        this->schedule_forced_reconnect_("notification registration could not be queued");
       }
       break;
     }
@@ -181,15 +227,20 @@ void AllpowersBLE::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
         this->set_protocol_error_(true);
         this->publish_controls_available_(false);
         this->publish_settings_available_(false);
+        this->schedule_forced_reconnect_("notification registration failed");
       } else {
         ESP_LOGI(TAG, "Subscribed to ALLPOWERS notifications");
       }
       // Notification registration completes this BLEClientNode's setup. The
       // first valid status notification is still required before writes.
       this->node_state = espbt::ClientState::ESTABLISHED;
+      if (param->reg_for_notify.status == ESP_GATT_OK)
+        this->start_connection_health_();
       if (param->reg_for_notify.status == ESP_GATT_OK && this->experimental_device_name_enabled_ &&
-          this->device_name_text_ != nullptr)
-        this->request_device_name_query_();
+          this->device_name_text_ != nullptr) {
+        this->device_name_query_pending_ = true;
+        this->device_name_query_started_ms_ = millis();
+      }
       break;
 
     case ESP_GATTC_NOTIFY_EVT:
@@ -201,6 +252,7 @@ void AllpowersBLE::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
       if (param->write.handle == this->write_handle_ && param->write.status != ESP_GATT_OK) {
         ESP_LOGW(TAG, "ALLPOWERS write failed, status=%d", param->write.status);
         this->set_protocol_error_(true);
+        this->schedule_forced_reconnect_("GATT write failed");
       }
       break;
 
@@ -266,6 +318,10 @@ void AllpowersBLE::process_notification_(const uint8_t *data, uint16_t length) {
     this->set_protocol_error_(true);
     return;
   }
+
+  // Track every structurally valid frame, not just telemetry. This prevents a
+  // watchdog reconnect while another command family proves the link is alive.
+  this->last_protocol_packet_ms_ = millis();
 
   switch (data[COMMAND_OFFSET]) {
     case STATUS_COMMAND:
@@ -690,6 +746,47 @@ bool AllpowersBLE::request_device_name(const std::string &name) {
 }
 
 bool AllpowersBLE::request_device_name_query_() { return this->send_device_name_frame_(""); }
+
+bool AllpowersBLE::send_status_request_() {
+  // Observed connection/status-subscription request used by
+  // allpowers-companion. It is a fixed station-facing command rather than the
+  // XOR-framed notification envelope, so reproduce the bytes exactly.
+  std::array<uint8_t, 12> frame{{0xA5, 0x65, 0xB1, 0x00, 0x01, 0x06, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00}};
+  return this->write_frame_(frame.data(), frame.size(), "status request");
+}
+
+void AllpowersBLE::start_connection_health_() {
+  const uint32_t now = millis();
+  this->connection_health_active_ = true;
+  this->forced_reconnect_pending_ = false;
+  this->forced_reconnect_reason_ = nullptr;
+  this->disconnect_requested_ = false;
+  this->last_protocol_packet_ms_ = now;
+  this->last_status_request_ms_ = now;
+
+  // Request the first status broadcast immediately after notification setup.
+  // Defer forced disconnect to loop() if the ESP-IDF write cannot be queued,
+  // avoiding GATT teardown from inside the registration callback.
+  if (!this->send_status_request_())
+    this->schedule_forced_reconnect_("initial status request could not be queued");
+}
+
+void AllpowersBLE::schedule_forced_reconnect_(const char *reason) {
+  if (this->disconnect_requested_)
+    return;
+  this->forced_reconnect_pending_ = true;
+  this->forced_reconnect_reason_ = reason;
+}
+
+void AllpowersBLE::request_forced_reconnect_(const char *reason) {
+  if (this->disconnect_requested_)
+    return;
+  this->disconnect_requested_ = true;
+  this->forced_reconnect_pending_ = false;
+  this->forced_reconnect_reason_ = nullptr;
+  ESP_LOGW(TAG, "ALLPOWERS BLE connection appears stale (%s); forcing reconnect", reason);
+  this->parent()->disconnect();
+}
 
 bool AllpowersBLE::send_device_name_frame_(const std::string &name) {
   std::vector<uint8_t> frame(MIN_FRAME_LENGTH + name.size(), 0);
