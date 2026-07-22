@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <inttypes.h>
 #include <limits>
@@ -423,8 +424,20 @@ void AllpowersBLE::process_device_name_notification_(const uint8_t *data, uint16
     return;
 
   const size_t payload_length = data[PAYLOAD_LENGTH_OFFSET];
-  if (payload_length == 0 || payload_length > MAX_DEVICE_NAME_LENGTH || length != MIN_FRAME_LENGTH + payload_length) {
+  if (payload_length == 0) {
+    std::string stored_name;
+    this->update_station_name("", "empty command 0x35 response", &stored_name);
+    if (!stored_name.empty())
+      this->device_name_text_->publish_state(stored_name);
+    this->set_protocol_error_(false);
+    return;
+  }
+  if (payload_length > MAX_DEVICE_NAME_LENGTH || length != MIN_FRAME_LENGTH + payload_length) {
     ESP_LOGW(TAG, "Ignoring invalid device-name response length: %u", static_cast<unsigned>(payload_length));
+    std::string stored_name;
+    this->update_station_name("", "invalid command 0x35 response", &stored_name);
+    if (!stored_name.empty())
+      this->device_name_text_->publish_state(stored_name);
     this->set_protocol_error_(true);
     return;
   }
@@ -432,13 +445,91 @@ void AllpowersBLE::process_device_name_notification_(const uint8_t *data, uint16
   const uint8_t *name = data + 7;
   if (!this->valid_utf8_(name, payload_length)) {
     ESP_LOGW(TAG, "Ignoring device-name response containing invalid UTF-8");
+    std::string stored_name;
+    this->update_station_name("", "invalid command 0x35 response", &stored_name);
+    if (!stored_name.empty())
+      this->device_name_text_->publish_state(stored_name);
     this->set_protocol_error_(true);
     return;
   }
 
-  this->device_name_text_->publish_state(reinterpret_cast<const char *>(name), payload_length);
+  std::string normalized_name;
+  const bool received_valid_name = this->update_station_name(
+      std::string(reinterpret_cast<const char *>(name), payload_length), "command 0x35", &normalized_name);
+  if (!normalized_name.empty())
+    this->device_name_text_->publish_state(normalized_name);
+  if (!received_valid_name) {
+    this->set_protocol_error_(false);
+    return;
+  }
+
   this->device_name_query_active_ = false;
   this->set_protocol_error_(false);
+}
+
+bool AllpowersBLE::update_station_name(const std::string &name, const char *source, std::string *normalized_name) {
+  std::string normalized;
+  if (!this->normalize_station_name_(name, &normalized)) {
+    ESP_LOGD(TAG, "Ignoring invalid or unavailable station name from %s", source);
+    if (this->station_name_text_sensor_ != nullptr)
+      this->station_name_text_sensor_->publish_stored(this->get_station_address(), normalized_name);
+    return false;
+  }
+
+  if (normalized_name != nullptr)
+    *normalized_name = normalized;
+  if (this->station_name_text_sensor_ != nullptr)
+    this->station_name_text_sensor_->store_and_publish(normalized, this->get_station_address(), source);
+  return true;
+}
+
+bool AllpowersBLE::normalize_station_name_(const std::string &name, std::string *normalized_name) const {
+  size_t first = 0;
+  while (first < name.size() && std::isspace(static_cast<unsigned char>(name[first])))
+    first++;
+  size_t last = name.size();
+  while (last > first && std::isspace(static_cast<unsigned char>(name[last - 1])))
+    last--;
+
+  if (first == last || last - first > MAX_DEVICE_NAME_LENGTH)
+    return false;
+
+  const std::string normalized = name.substr(first, last - first);
+  if (!this->valid_utf8_(reinterpret_cast<const uint8_t *>(normalized.data()), normalized.size()))
+    return false;
+  for (const unsigned char byte : normalized) {
+    if (byte < 0x20 || byte == 0x7F)
+      return false;
+  }
+
+  std::string lowercase;
+  lowercase.reserve(normalized.size());
+  for (const unsigned char byte : normalized)
+    lowercase.push_back(byte < 0x80 ? static_cast<char>(std::tolower(byte)) : static_cast<char>(byte));
+
+  static constexpr std::array<const char *, 16> INVALID_NAMES{{
+      "unknown",
+      "(unknown)",
+      "unknown device",
+      "unavailable",
+      "not available",
+      "not found",
+      "not set",
+      "n/a",
+      "none",
+      "null",
+      "undefined",
+      "failed",
+      "error",
+      "-",
+      "--",
+      "?",
+  }};
+  if (std::find(INVALID_NAMES.begin(), INVALID_NAMES.end(), lowercase) != INVALID_NAMES.end())
+    return false;
+
+  *normalized_name = normalized;
+  return true;
 }
 
 bool AllpowersBLE::valid_utf8_(const uint8_t *data, size_t length) const {
@@ -1097,6 +1188,104 @@ void AllpowersBLESettingsKeepaliveIntervalNumber::control(float value) {
 }
 
 void AllpowersBLESettingsKeepaliveButton::press_action() { this->parent_->send_settings_keepalive_now(); }
+
+void AllpowersBLEStationNameTextSensor::setup() {
+  this->preference_ = this->make_entity_preference<StationNamePreference>(PREFERENCE_VERSION);
+  if (this->parent_ == nullptr) {
+    ESP_LOGE(TAG, "Station-name text sensor has no parent component");
+    return;
+  }
+
+  StationNamePreference stored{};
+  if (!this->preference_.load(&stored)) {
+    this->publish_state("");
+    return;
+  }
+
+  const uint64_t current_address = this->parent_->get_station_address();
+  if (stored.station_address != current_address) {
+    if (stored.name_length != 0) {
+      StationNamePreference cleared{};
+      cleared.station_address = current_address;
+      if (this->preference_.save(&cleared)) {
+        ESP_LOGI(TAG, "Cleared stored station name because the configured BLE MAC address changed");
+      } else {
+        ESP_LOGW(TAG, "Failed to clear stored station name after the configured BLE MAC address changed");
+      }
+    }
+    this->stored_station_address_ = current_address;
+    this->stored_name_.clear();
+    this->publish_state("");
+    return;
+  }
+
+  this->stored_station_address_ = stored.station_address;
+  if (stored.name_length == 0) {
+    this->publish_state("");
+    return;
+  }
+  if (stored.name_length > STORED_NAME_CAPACITY) {
+    ESP_LOGW(TAG, "Ignoring invalid stored station-name length");
+    this->stored_name_.clear();
+    this->publish_state("");
+    return;
+  }
+
+  std::string restored_name(stored.name, stored.name_length);
+  std::string normalized_name;
+  if (!this->parent_->normalize_station_name_(restored_name, &normalized_name)) {
+    ESP_LOGW(TAG, "Ignoring invalid station name stored in flash");
+    this->stored_name_.clear();
+    this->publish_state("");
+    return;
+  }
+
+  // The value was already persisted. Restore it directly so boot never queues
+  // a redundant preference write.
+  this->stored_name_ = normalized_name;
+  this->publish_state(normalized_name);
+}
+
+void AllpowersBLEStationNameTextSensor::store_and_publish(const std::string &name, uint64_t station_address,
+                                                          const char *source) {
+  if (station_address == 0) {
+    ESP_LOGW(TAG, "Cannot persist station name from %s without a configured BLE MAC address", source);
+    this->publish_state(name);
+    return;
+  }
+
+  if (this->stored_station_address_ == station_address && this->stored_name_ == name) {
+    if (!this->has_state() || this->state != name)
+      this->publish_state(name);
+    return;
+  }
+
+  StationNamePreference stored{};
+  stored.station_address = station_address;
+  stored.name_length = static_cast<uint8_t>(name.size());
+  std::copy(name.begin(), name.end(), stored.name);
+  if (!this->preference_.save(&stored)) {
+    ESP_LOGW(TAG, "Failed to persist station name received from %s", source);
+  } else {
+    this->stored_station_address_ = station_address;
+    this->stored_name_ = name;
+  }
+
+  this->publish_state(name);
+}
+
+bool AllpowersBLEStationNameTextSensor::publish_stored(uint64_t station_address, std::string *stored_name) {
+  if (stored_name != nullptr)
+    stored_name->clear();
+  if (station_address == 0 || this->stored_station_address_ != station_address || this->stored_name_.empty())
+    return false;
+
+  if (stored_name != nullptr)
+    *stored_name = this->stored_name_;
+  if (!this->has_state() || this->state != this->stored_name_)
+    this->publish_state(this->stored_name_);
+  return true;
+}
 
 void AllpowersBLEEcoShutdownTimeSelect::publish_hours(uint8_t hours) {
   const auto option = std::find(ECO_SHUTDOWN_HOURS.begin(), ECO_SHUTDOWN_HOURS.end(), hours);

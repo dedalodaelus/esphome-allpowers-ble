@@ -39,6 +39,7 @@ class AllpowersBLECarChargerSwitch;
 class AllpowersBLESettingsKeepaliveSwitch;
 class AllpowersBLESettingsKeepaliveIntervalNumber;
 class AllpowersBLESettingsKeepaliveButton;
+class AllpowersBLEStationNameTextSensor;
 class AllpowersBLEEcoShutdownTimeSelect;
 class AllpowersBLEWorkModeSelect;
 class AllpowersBLEDeviceNameText;
@@ -63,6 +64,8 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   uint32_t get_settings_keepalive_interval() const { return this->settings_keepalive_interval_ms_; }
   bool send_settings_keepalive_now();
   void set_experimental_device_name_enabled(bool enabled) { this->experimental_device_name_enabled_ = enabled; }
+  uint64_t get_station_address() { return this->parent() == nullptr ? this->address_ : this->parent()->get_address(); }
+  bool update_station_name(const std::string &name, const char *source, std::string *normalized_name = nullptr);
 
   void set_soc_sensor(sensor::Sensor *sensor) { this->soc_sensor_ = sensor; }
   void set_input_power_sensor(sensor::Sensor *sensor) { this->input_power_sensor_ = sensor; }
@@ -77,6 +80,9 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   }
   void set_firmware_version_text_sensor(text_sensor::TextSensor *sensor) {
     this->firmware_version_text_sensor_ = sensor;
+  }
+  void set_station_name_text_sensor(AllpowersBLEStationNameTextSensor *sensor) {
+    this->station_name_text_sensor_ = sensor;
   }
 
   void set_connected_binary_sensor(binary_sensor::BinarySensor *sensor) { this->connected_binary_sensor_ = sensor; }
@@ -116,6 +122,8 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   bool request_device_name(const std::string &name);
 
  protected:
+  friend class AllpowersBLEStationNameTextSensor;
+
   static constexpr uint16_t NOTIFY_UUID = 0xFFF1;
   static constexpr uint16_t WRITE_UUID = 0xFFF2;
   static constexpr size_t MIN_FRAME_LENGTH = 8;
@@ -176,6 +184,7 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   void schedule_forced_reconnect_(const char *reason);
   void request_forced_reconnect_(const char *reason);
   bool valid_utf8_(const uint8_t *data, size_t length) const;
+  bool normalize_station_name_(const std::string &name, std::string *normalized_name) const;
   bool send_control_frame_();
   bool send_settings_frame_(const char *description = "settings");
   bool write_frame_(uint8_t *data, size_t length, const char *description);
@@ -243,6 +252,7 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
 
   text_sensor::TextSensor *hardware_version_text_sensor_{nullptr};
   text_sensor::TextSensor *firmware_version_text_sensor_{nullptr};
+  AllpowersBLEStationNameTextSensor *station_name_text_sensor_{nullptr};
 
   binary_sensor::BinarySensor *connected_binary_sensor_{nullptr};
   binary_sensor::BinarySensor *data_valid_binary_sensor_{nullptr};
@@ -331,6 +341,32 @@ class AllpowersBLESettingsKeepaliveButton final : public button::Button {
   void press_action() override;
 
   AllpowersBLE *parent_;
+};
+
+class AllpowersBLEStationNameTextSensor final : public text_sensor::TextSensor, public Component {
+ public:
+  void set_parent(AllpowersBLE *parent) { this->parent_ = parent; }
+  void setup() override;
+  void store_and_publish(const std::string &name, uint64_t station_address, const char *source);
+  bool publish_stored(uint64_t station_address, std::string *stored_name = nullptr);
+
+ protected:
+  static constexpr uint32_t PREFERENCE_VERSION = 0x53544E01;
+  static constexpr size_t STORED_NAME_CAPACITY = 96;
+
+  struct __attribute__((packed)) StationNamePreference {
+    uint64_t station_address;
+    uint8_t name_length;
+    char name[STORED_NAME_CAPACITY];
+  };
+
+  static_assert(sizeof(StationNamePreference) == sizeof(uint64_t) + sizeof(uint8_t) + STORED_NAME_CAPACITY,
+                "Station-name preference must not contain padding");
+
+  AllpowersBLE *parent_{nullptr};
+  ESPPreferenceObject preference_;
+  uint64_t stored_station_address_{0};
+  std::string stored_name_;
 };
 
 class AllpowersBLEEcoShutdownTimeSelect final : public select::Select {
