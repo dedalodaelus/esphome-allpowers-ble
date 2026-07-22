@@ -10,17 +10,19 @@ from esphome.components import (
     esp32_ble_tracker,
     select as select_,
     switch as switch_,
+    text as text_,
 )
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
 
-AUTO_LOAD = ["sensor", "binary_sensor", "switch", "select", "text_sensor"]
+AUTO_LOAD = ["sensor", "binary_sensor", "switch", "select", "text", "text_sensor"]
 DEPENDENCIES = ["ble_client"]
 MULTI_CONF = True
 
 CONF_ALLPOWERS_BLE_ID = "allpowers_ble_id"
 CONF_SERVICE_UUID = "service_uuid"
 CONF_STALE_TIMEOUT = "stale_timeout"
+CONF_ENABLE_EXPERIMENTAL_DEVICE_NAME = "enable_experimental_device_name"
 
 allpowers_ble_ns = cg.esphome_ns.namespace("allpowers_ble")
 AllpowersBLE = allpowers_ble_ns.class_(
@@ -41,6 +43,9 @@ AllpowersBLEEcoShutdownTimeSelect = allpowers_ble_ns.class_(
 AllpowersBLEWorkModeSelect = allpowers_ble_ns.class_(
     "AllpowersBLEWorkModeSelect", select_.Select
 )
+AllpowersBLEDeviceNameText = allpowers_ble_ns.class_(
+    "AllpowersBLEDeviceNameText", text_.Text
+)
 
 CONFIG_SCHEMA = (
     cv.Schema(
@@ -50,6 +55,9 @@ CONFIG_SCHEMA = (
             cv.Optional(
                 CONF_STALE_TIMEOUT, default="30s"
             ): cv.positive_time_period_milliseconds,
+            cv.Optional(
+                CONF_ENABLE_EXPERIMENTAL_DEVICE_NAME, default=False
+            ): cv.boolean,
         }
     )
     .extend(cv.COMPONENT_SCHEMA)
@@ -81,3 +89,8 @@ async def to_code(config):
 
     _set_service_uuid(var, config[CONF_SERVICE_UUID])
     cg.add(var.set_stale_timeout(config[CONF_STALE_TIMEOUT].total_milliseconds))
+    cg.add(
+        var.set_experimental_device_name_enabled(
+            config[CONF_ENABLE_EXPERIMENTAL_DEVICE_NAME]
+        )
+    )
