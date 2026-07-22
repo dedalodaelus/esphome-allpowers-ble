@@ -300,9 +300,16 @@ confirmed value unless the station returns a valid command-`0x35` name response.
 three bounded queries per GATT connection (after 500 ms, then twice more at 3-second intervals) and
 cancels the remaining attempts as soon as a valid response arrives.
 
-The separate `BLE Advertised Name` diagnostic is always read-only. It captures the name passively
-from advertisements matching `allpowers_mac`, so it does not depend on command `0x35` support or
-send any request to the station. Before each connection attempt, the package temporarily keeps
+The separate `Station Name` diagnostic is always read-only. It accepts a valid name from either an
+advertisement matching `allpowers_mac` or a valid command-`0x35` response, and stores the latest
+value in ESPHome preferences. Empty values, placeholders such as `Unknown`, malformed UTF-8 and
+control characters neither overwrite nor clear a previously stored name. Repeated reception of the
+same name does not queue another flash write. At boot the stored value is restored only when its
+associated MAC still matches `allpowers_mac`; changing the MAC clears a non-empty stored name before
+anything is published, so a name cannot leak from one station to another.
+
+Passive advertisement capture does not depend on command `0x35` support or send any request to the
+station. Before each connection attempt, the package temporarily keeps
 `BLEClient` auto-connect disabled while active scanning waits for a fresh name. Receipt of the name
 starts the connection immediately; otherwise the connection proceeds after
 `allpowers_advertised_name_wait_timeout`, so a device that omits its name cannot block telemetry.

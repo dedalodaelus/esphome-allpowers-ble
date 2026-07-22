@@ -159,6 +159,13 @@ optimistically claim that a write succeeded. After notification subscription it 
 most three queries, 3 seconds apart. A valid `0x35` response cancels the remaining attempts. The retry budget
 is reset for each new GATT connection and is never used as continuous polling.
 
+The read-only station-name sensor uses one validation and persistence path for command `0x35` responses and
+BLE advertisements. Valid names are trimmed, limited to 96 UTF-8 bytes and written to preferences only when
+they differ from the value already stored for the configured station MAC. Empty names, unavailable-value
+placeholders and strings containing control characters leave the stored value published. A changed MAC
+invalidates a non-empty stored name before it can be restored; the next valid advertisement or `0x35`
+response establishes the new MAC/name pair.
+
 This command is disabled by default because the app gates it to SOLIX/VOLIX P1800; it has not been
 demonstrated on the R600 or the other families supported by the telemetry parser. Enabling it on another
 model is an explicit hardware experiment, not a compatibility claim.

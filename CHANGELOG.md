@@ -36,6 +36,8 @@ for published releases.
 - Initial settings keepalive after every newly established BLE session, sent
   as soon as that session provides a real settings snapshot, plus a manual
   Home Assistant button for a one-shot resend.
+- Flash-backed station name shared by BLE advertisements and command `0x35`,
+  with invalid-name filtering, write deduplication and MAC-bound invalidation.
 
 ### Changed
 
