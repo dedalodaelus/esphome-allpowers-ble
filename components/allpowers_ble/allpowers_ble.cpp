@@ -11,6 +11,7 @@
 #include <inttypes.h>
 #include <limits>
 #include <string>
+#include <vector>
 
 #include <esp_err.h>
 
@@ -43,6 +44,7 @@ void AllpowersBLE::dump_config() {
   ESP_LOGCONFIG(TAG, "  Notify characteristic: 0x%04X", NOTIFY_UUID);
   ESP_LOGCONFIG(TAG, "  Write characteristic: 0x%04X", WRITE_UUID);
   ESP_LOGCONFIG(TAG, "  Stale timeout: %" PRIu32 " ms", this->stale_timeout_ms_);
+  ESP_LOGCONFIG(TAG, "  Experimental device-name command: %s", YESNO(this->experimental_device_name_enabled_));
 }
 
 void AllpowersBLE::loop() {
@@ -98,6 +100,8 @@ void AllpowersBLE::reset_connection_state_() {
   this->publish_settings_available_(false);
   this->invalidate_data_entities_();
   this->invalidate_settings_entities_();
+  if (this->device_name_text_ != nullptr)
+    this->device_name_text_->clear_state();
 }
 
 void AllpowersBLE::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
@@ -183,6 +187,9 @@ void AllpowersBLE::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
       // Notification registration completes this BLEClientNode's setup. The
       // first valid status notification is still required before writes.
       this->node_state = espbt::ClientState::ESTABLISHED;
+      if (param->reg_for_notify.status == ESP_GATT_OK && this->experimental_device_name_enabled_ &&
+          this->device_name_text_ != nullptr)
+        this->request_device_name_query_();
       break;
 
     case ESP_GATTC_NOTIFY_EVT:
@@ -267,6 +274,9 @@ void AllpowersBLE::process_notification_(const uint8_t *data, uint16_t length) {
     case SETTINGS_STATUS_COMMAND:
       this->process_settings_notification_(data, length);
       break;
+    case DEVICE_NAME_COMMAND:
+      this->process_device_name_notification_(data, length);
+      break;
     default:
       // Other valid command families exist in newer stations. They are not a
       // protocol fault and must not be interpreted as telemetry by offset.
@@ -274,6 +284,67 @@ void AllpowersBLE::process_notification_(const uint8_t *data, uint16_t length) {
       this->set_protocol_error_(false);
       break;
   }
+}
+
+void AllpowersBLE::process_device_name_notification_(const uint8_t *data, uint16_t length) {
+  if (!this->experimental_device_name_enabled_ || this->device_name_text_ == nullptr)
+    return;
+
+  const size_t payload_length = data[PAYLOAD_LENGTH_OFFSET];
+  if (payload_length == 0 || payload_length > MAX_DEVICE_NAME_LENGTH || length != MIN_FRAME_LENGTH + payload_length) {
+    ESP_LOGW(TAG, "Ignoring invalid device-name response length: %u", static_cast<unsigned>(payload_length));
+    this->set_protocol_error_(true);
+    return;
+  }
+
+  const uint8_t *name = data + 7;
+  if (!this->valid_utf8_(name, payload_length)) {
+    ESP_LOGW(TAG, "Ignoring device-name response containing invalid UTF-8");
+    this->set_protocol_error_(true);
+    return;
+  }
+
+  this->device_name_text_->publish_state(reinterpret_cast<const char *>(name), payload_length);
+  this->set_protocol_error_(false);
+}
+
+bool AllpowersBLE::valid_utf8_(const uint8_t *data, size_t length) const {
+  size_t index = 0;
+  while (index < length) {
+    const uint8_t first = data[index++];
+    if (first <= 0x7F)
+      continue;
+
+    size_t continuation_count;
+    uint32_t codepoint;
+    if ((first & 0xE0) == 0xC0) {
+      continuation_count = 1;
+      codepoint = first & 0x1F;
+    } else if ((first & 0xF0) == 0xE0) {
+      continuation_count = 2;
+      codepoint = first & 0x0F;
+    } else if ((first & 0xF8) == 0xF0) {
+      continuation_count = 3;
+      codepoint = first & 0x07;
+    } else {
+      return false;
+    }
+
+    if (index + continuation_count > length)
+      return false;
+    for (size_t offset = 0; offset < continuation_count; offset++) {
+      const uint8_t continuation = data[index++];
+      if ((continuation & 0xC0) != 0x80)
+        return false;
+      codepoint = (codepoint << 6) | (continuation & 0x3F);
+    }
+
+    if ((continuation_count == 1 && codepoint < 0x80) || (continuation_count == 2 && codepoint < 0x800) ||
+        (continuation_count == 3 && codepoint < 0x10000) || codepoint > 0x10FFFF ||
+        (codepoint >= 0xD800 && codepoint <= 0xDFFF))
+      return false;
+  }
+  return true;
 }
 
 void AllpowersBLE::process_status_notification_(const uint8_t *data, uint16_t length) {
@@ -600,6 +671,45 @@ bool AllpowersBLE::request_car_charger(bool state) {
   return false;
 }
 
+bool AllpowersBLE::request_device_name(const std::string &name) {
+  if (!this->experimental_device_name_enabled_) {
+    ESP_LOGW(TAG, "Ignoring device-name command: enable_experimental_device_name is false");
+    return false;
+  }
+  if (this->node_state != espbt::ClientState::ESTABLISHED || this->write_handle_ == 0) {
+    ESP_LOGW(TAG, "Ignoring device-name command: BLE client is not ready");
+    return false;
+  }
+  if (name.empty() || name.size() > MAX_DEVICE_NAME_LENGTH ||
+      !this->valid_utf8_(reinterpret_cast<const uint8_t *>(name.data()), name.size())) {
+    ESP_LOGW(TAG, "Ignoring device-name command: name must be valid UTF-8 and 1-%u bytes",
+             static_cast<unsigned>(MAX_DEVICE_NAME_LENGTH));
+    return false;
+  }
+  return this->send_device_name_frame_(name);
+}
+
+bool AllpowersBLE::request_device_name_query_() { return this->send_device_name_frame_(""); }
+
+bool AllpowersBLE::send_device_name_frame_(const std::string &name) {
+  std::vector<uint8_t> frame(MIN_FRAME_LENGTH + name.size(), 0);
+  frame[0] = 0xA5;
+  frame[1] = 0x65;
+  frame[2] = 0x00;
+  frame[3] = 0xB1;
+  frame[4] = 0x01;
+  frame[PAYLOAD_LENGTH_OFFSET] = static_cast<uint8_t>(name.size());
+  frame[COMMAND_OFFSET] = DEVICE_NAME_COMMAND;
+  std::copy(name.begin(), name.end(), frame.begin() + 7);
+
+  uint8_t checksum = 0;
+  for (size_t index = 0; index < frame.size() - 1; index++)
+    checksum ^= frame[index];
+  frame.back() = checksum;
+
+  return this->write_frame_(frame.data(), frame.size(), name.empty() ? "device-name query" : "device-name update");
+}
+
 bool AllpowersBLE::send_control_frame_() {
   // Exact control frame and check-byte calculation from allpowers-ble. The
   // final byte is reproduced from upstream behavior; it is not treated as a
@@ -790,6 +900,14 @@ void AllpowersBLEWorkModeSelect::control(size_t index) {
     return;
   }
   this->parent_->request_work_mode(WORK_MODES[index]);
+}
+
+void AllpowersBLEDeviceNameText::control(const std::string &value) {
+  if (this->parent_ == nullptr) {
+    ESP_LOGE(TAG, "ALLPOWERS device-name text has no parent component");
+    return;
+  }
+  this->parent_->request_device_name(value);
 }
 
 }  // namespace esphome::allpowers_ble

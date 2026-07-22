@@ -17,6 +17,7 @@
 #include "esphome/components/select/select.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
+#include "esphome/components/text/text.h"
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/core/component.h"
 
@@ -34,6 +35,7 @@ class AllpowersBLEEcoSwitch;
 class AllpowersBLECarChargerSwitch;
 class AllpowersBLEEcoShutdownTimeSelect;
 class AllpowersBLEWorkModeSelect;
+class AllpowersBLEDeviceNameText;
 
 class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
  public:
@@ -47,6 +49,7 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   void set_service_uuid32(uint32_t uuid) { this->service_uuid_ = espbt::ESPBTUUID::from_uint32(uuid); }
   void set_service_uuid128(const uint8_t *uuid) { this->service_uuid_ = espbt::ESPBTUUID::from_raw(uuid); }
   void set_stale_timeout(uint32_t timeout_ms) { this->stale_timeout_ms_ = timeout_ms; }
+  void set_experimental_device_name_enabled(bool enabled) { this->experimental_device_name_enabled_ = enabled; }
 
   void set_soc_sensor(sensor::Sensor *sensor) { this->soc_sensor_ = sensor; }
   void set_input_power_sensor(sensor::Sensor *sensor) { this->input_power_sensor_ = sensor; }
@@ -90,12 +93,14 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
     this->eco_shutdown_time_select_ = select;
   }
   void set_work_mode_select(AllpowersBLEWorkModeSelect *select) { this->work_mode_select_ = select; }
+  void set_device_name_text(AllpowersBLEDeviceNameText *text) { this->device_name_text_ = text; }
 
   bool request_output(OutputType output, bool state);
   bool request_eco_mode(bool state);
   bool request_eco_shutdown_time(uint8_t hours);
   bool request_work_mode(uint8_t mode);
   bool request_car_charger(bool state);
+  bool request_device_name(const std::string &name);
 
  protected:
   static constexpr uint16_t NOTIFY_UUID = 0xFFF1;
@@ -108,6 +113,8 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   static constexpr size_t COMMAND_OFFSET = 6;
   static constexpr uint8_t STATUS_COMMAND = 0x01;
   static constexpr uint8_t SETTINGS_STATUS_COMMAND = 0x03;
+  static constexpr uint8_t DEVICE_NAME_COMMAND = 0x35;
+  static constexpr size_t MAX_DEVICE_NAME_LENGTH = 96;
 
   // Verified offsets in the status notification format used by the upstream
   // implementation. Keeping them named avoids scattering protocol magic
@@ -145,6 +152,10 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   void process_notification_(const uint8_t *data, uint16_t length);
   void process_status_notification_(const uint8_t *data, uint16_t length);
   void process_settings_notification_(const uint8_t *data, uint16_t length);
+  void process_device_name_notification_(const uint8_t *data, uint16_t length);
+  bool request_device_name_query_();
+  bool send_device_name_frame_(const std::string &name);
+  bool valid_utf8_(const uint8_t *data, size_t length) const;
   bool send_control_frame_();
   bool send_settings_frame_();
   bool write_frame_(uint8_t *data, size_t length, const char *description);
@@ -172,6 +183,7 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   bool ac_on_{false};
   bool dc_on_{false};
   bool light_on_{false};
+  bool experimental_device_name_enabled_{false};
 
   // Settings writes are read-modify-write operations. A fresh command-0x03
   // notification must establish these raw values before ECO mode, its shutdown
@@ -215,6 +227,7 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   AllpowersBLECarChargerSwitch *car_charger_switch_{nullptr};
   AllpowersBLEEcoShutdownTimeSelect *eco_shutdown_time_select_{nullptr};
   AllpowersBLEWorkModeSelect *work_mode_select_{nullptr};
+  AllpowersBLEDeviceNameText *device_name_text_{nullptr};
 };
 
 class AllpowersBLESwitch final : public switch_::Switch {
@@ -269,6 +282,17 @@ class AllpowersBLEWorkModeSelect final : public select::Select {
 
  protected:
   void control(size_t index) override;
+
+  AllpowersBLE *parent_{nullptr};
+};
+
+class AllpowersBLEDeviceNameText final : public text::Text {
+ public:
+  void set_parent(AllpowersBLE *parent) { this->parent_ = parent; }
+  void clear_state() { this->set_has_state(false); }
+
+ protected:
+  void control(const std::string &value) override;
 
   AllpowersBLE *parent_{nullptr};
 };
