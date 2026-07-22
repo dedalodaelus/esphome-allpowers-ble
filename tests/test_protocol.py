@@ -14,6 +14,7 @@ WORK_MODES = (0, 1, 2)
 CAR_CHARGER_MASK = 0x10
 DEVICE_NAME_COMMAND = 0x35
 MAX_DEVICE_NAME_LENGTH = 96
+DEVICE_NAME_QUERY_MAX_ATTEMPTS = 3
 STATUS_REQUEST_COMMAND = bytes.fromhex("A5 65 B1 00 01 06 01 00 00 00 00 00")
 
 
@@ -187,6 +188,18 @@ def connection_health_action(
         return "disconnect"
     if now_ms - last_request_ms >= keepalive_ms:
         return "request_status"
+    return "wait"
+
+
+def device_name_query_action(
+    *, now_ms: int, next_query_ms: int, attempts: int, response_received: bool
+) -> str:
+    """Model the bounded command-0x35 retry gate used by the component."""
+
+    if response_received or attempts >= DEVICE_NAME_QUERY_MAX_ATTEMPTS:
+        return "stop"
+    if now_ms >= next_query_ms:
+        return "query"
     return "wait"
 
 
@@ -409,6 +422,47 @@ def test_device_name_response_and_limits() -> None:
         raise AssertionError("device name above 96 UTF-8 bytes was accepted")
 
 
+def test_device_name_query_retry_policy() -> None:
+    """Retry a missing response at most three times and stop on success."""
+
+    assert (
+        device_name_query_action(
+            now_ms=499, next_query_ms=500, attempts=0, response_received=False
+        )
+        == "wait"
+    )
+    assert (
+        device_name_query_action(
+            now_ms=500, next_query_ms=500, attempts=0, response_received=False
+        )
+        == "query"
+    )
+    assert (
+        device_name_query_action(
+            now_ms=3500, next_query_ms=3500, attempts=1, response_received=False
+        )
+        == "query"
+    )
+    assert (
+        device_name_query_action(
+            now_ms=6500, next_query_ms=6500, attempts=2, response_received=False
+        )
+        == "query"
+    )
+    assert (
+        device_name_query_action(
+            now_ms=9500, next_query_ms=9500, attempts=3, response_received=False
+        )
+        == "stop"
+    )
+    assert (
+        device_name_query_action(
+            now_ms=3500, next_query_ms=3500, attempts=1, response_received=True
+        )
+        == "stop"
+    )
+
+
 def test_status_request_and_connection_health_ordering() -> None:
     """Lock the observed request bytes and prefer reconnect at the deadline."""
 
@@ -460,6 +514,7 @@ if __name__ == "__main__":
     test_car_charger_preserves_other_settings()
     test_device_name_query_and_utf8_update()
     test_device_name_response_and_limits()
+    test_device_name_query_retry_policy()
     test_status_request_and_connection_health_ordering()
     test_unsupported_work_mode_is_rejected()
     print("Protocol tests passed")
