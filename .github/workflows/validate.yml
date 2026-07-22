@@ -62,14 +62,16 @@ jobs:
       - name: ClangFormat
         run: |
           clang-format --dry-run --Werror \
-            components/allpowers_ble/allpowers_ble.h \
-            components/allpowers_ble/allpowers_ble.cpp
+            components/allpowers_ble/*.h \
+            components/allpowers_ble/*.cpp \
+            tests/test_protocol.cpp
 
       - name: CppLint
         run: |
           cpplint \
-            components/allpowers_ble/allpowers_ble.h \
-            components/allpowers_ble/allpowers_ble.cpp
+            components/allpowers_ble/*.h \
+            components/allpowers_ble/*.cpp \
+            tests/test_protocol.cpp
 
       - name: YAML lint
         run: |
@@ -80,7 +82,21 @@ jobs:
             tests/ci.yaml \
             home_assistant/allpowers_ble_controls.yaml.example
 
-      - name: Protocol regression tests
+      - name: Native C++ protocol tests
+        run: |
+          g++ \
+            -std=c++17 \
+            -Wall \
+            -Wextra \
+            -Werror \
+            -pedantic \
+            -Icomponents/allpowers_ble \
+            components/allpowers_ble/allpowers_ble_protocol.cpp \
+            tests/test_protocol.cpp \
+            -o /tmp/allpowers-ble-protocol-tests
+          /tmp/allpowers-ble-protocol-tests
+
+      - name: Python protocol regression tests
         run: python tests/test_protocol.py
 
   build:
