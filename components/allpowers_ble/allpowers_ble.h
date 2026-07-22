@@ -117,7 +117,9 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   static constexpr uint8_t SETTINGS_STATUS_COMMAND = 0x03;
   static constexpr uint8_t DEVICE_NAME_COMMAND = 0x35;
   static constexpr size_t MAX_DEVICE_NAME_LENGTH = 96;
-  static constexpr uint32_t DEVICE_NAME_QUERY_DELAY_MS = 500;
+  static constexpr uint8_t DEVICE_NAME_QUERY_MAX_ATTEMPTS = 3;
+  static constexpr uint32_t DEVICE_NAME_QUERY_INITIAL_DELAY_MS = 500;
+  static constexpr uint32_t DEVICE_NAME_QUERY_RETRY_INTERVAL_MS = 3000;
 
   // Verified offsets in the status notification format used by the upstream
   // implementation. Keeping them named avoids scattering protocol magic
@@ -211,8 +213,9 @@ class AllpowersBLE final : public Component, public ble_client::BLEClientNode {
   bool forced_reconnect_pending_{false};
   const char *forced_reconnect_reason_{nullptr};
   bool disconnect_requested_{false};
-  bool device_name_query_pending_{false};
-  uint32_t device_name_query_started_ms_{0};
+  bool device_name_query_active_{false};
+  uint8_t device_name_query_attempts_{0};
+  uint32_t next_device_name_query_ms_{0};
 
   sensor::Sensor *soc_sensor_{nullptr};
   sensor::Sensor *input_power_sensor_{nullptr};

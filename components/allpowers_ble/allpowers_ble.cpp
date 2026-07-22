@@ -89,12 +89,21 @@ void AllpowersBLE::loop() {
   if (!this->connection_health_active_)
     return;
 
-  // The initial status request and optional device-name query both use FFF2.
-  // Space them so two writes are not submitted back-to-back during the GATT
-  // registration callback on controllers with a shallow write queue.
-  if (this->device_name_query_pending_ && now - this->device_name_query_started_ms_ >= DEVICE_NAME_QUERY_DELAY_MS) {
-    this->device_name_query_pending_ = false;
+  // The initial status request and optional device-name queries both use FFF2.
+  // Space them so writes are not submitted back-to-back during GATT setup.
+  // Retry only within this connection and stop immediately after a valid 0x35
+  // response; this covers a lost first response without polling indefinitely.
+  if (this->device_name_query_active_ && static_cast<int32_t>(now - this->next_device_name_query_ms_) >= 0) {
+    this->device_name_query_attempts_++;
+    ESP_LOGD(TAG, "Requesting Bluetooth device name (attempt %u/%u)",
+             static_cast<unsigned>(this->device_name_query_attempts_),
+             static_cast<unsigned>(DEVICE_NAME_QUERY_MAX_ATTEMPTS));
     this->request_device_name_query_();
+    if (this->device_name_query_attempts_ >= DEVICE_NAME_QUERY_MAX_ATTEMPTS) {
+      this->device_name_query_active_ = false;
+    } else {
+      this->next_device_name_query_ms_ = now + DEVICE_NAME_QUERY_RETRY_INTERVAL_MS;
+    }
   }
 
   // A valid packet of any supported or unsupported command proves that the
@@ -135,8 +144,9 @@ void AllpowersBLE::reset_connection_state_() {
   this->forced_reconnect_pending_ = false;
   this->forced_reconnect_reason_ = nullptr;
   this->disconnect_requested_ = false;
-  this->device_name_query_pending_ = false;
-  this->device_name_query_started_ms_ = 0;
+  this->device_name_query_active_ = false;
+  this->device_name_query_attempts_ = 0;
+  this->next_device_name_query_ms_ = 0;
   if (this->connected_binary_sensor_ != nullptr)
     this->connected_binary_sensor_->publish_state(false);
   if (this->data_valid_binary_sensor_ != nullptr)
@@ -238,8 +248,9 @@ void AllpowersBLE::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
         this->start_connection_health_();
       if (param->reg_for_notify.status == ESP_GATT_OK && this->experimental_device_name_enabled_ &&
           this->device_name_text_ != nullptr) {
-        this->device_name_query_pending_ = true;
-        this->device_name_query_started_ms_ = millis();
+        this->device_name_query_active_ = true;
+        this->device_name_query_attempts_ = 0;
+        this->next_device_name_query_ms_ = millis() + DEVICE_NAME_QUERY_INITIAL_DELAY_MS;
       }
       break;
 
@@ -361,6 +372,7 @@ void AllpowersBLE::process_device_name_notification_(const uint8_t *data, uint16
   }
 
   this->device_name_text_->publish_state(reinterpret_cast<const char *>(name), payload_length);
+  this->device_name_query_active_ = false;
   this->set_protocol_error_(false);
 }
 
