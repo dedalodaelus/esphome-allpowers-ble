@@ -137,8 +137,8 @@ Complete configurations are provided in:
 | `allpowers_stale_timeout` | `30s` | Time before telemetry becomes unknown |
 | `allpowers_keepalive_interval` | `20s` | Interval between status-broadcast refresh requests; minimum `5s` |
 | `allpowers_watchdog_timeout` | `45s` | Silence before forcing reconnection; minimum `10s` and longer than keepalive |
-| `allpowers_enable_settings_keepalive` | `false` | Opt in to periodically resending the latest settings snapshot |
-| `allpowers_settings_keepalive_interval` | `9min` | Settings-resend interval; minimum `1min` and should remain below the station cutoff |
+| `allpowers_enable_settings_keepalive` | `false` | Initial state of the Home Assistant settings-keepalive switch before a saved value exists |
+| `allpowers_settings_keepalive_interval` | `9min` | Initial settings-resend interval before a saved Home Assistant value exists |
 | `allpowers_enable_experimental_device_name` | `false` | Opt in to command-`0x35` name query/update |
 | `allpowers_connect_at_boot` | `true` | Start persistent searching after boot |
 | `allpowers_bootstrap_delay` | `10s` | Delay before initial BLE search |
@@ -179,6 +179,9 @@ bluetooth_proxy:
 | ECO Shutdown Time | Select |
 | Work Mode | Select |
 | Car Charger | Switch |
+| R600 Settings Keepalive | Persistent configuration switch |
+| R600 Settings Keepalive Interval | Persistent number (`1`-`9` minutes) |
+| Send R600 Settings Keepalive Now | Configuration button |
 | Bluetooth Name (Experimental) | Text |
 | AC Output Status | Binary sensor |
 | DC Output Status | Binary sensor |
@@ -221,12 +224,23 @@ a need to tune them.
 
 The separate settings keepalive targets a different R600 behavior: the station can close a healthy BLE
 connection at about 10 minutes even though notifications continue and the status requests succeed. Enable
-it explicitly with `allpowers_enable_settings_keepalive: "true"`. At the configured interval, the component
+it with the `R600 Settings Keepalive` switch in Home Assistant. At the configured interval, the component
 reuses the most recent complete settings bitmap and ECO timeout reported by the station and sends them back
 unchanged as command `0x02`; it skips the write if no settings snapshot was received in that connection.
 An output-control or settings write restarts this interval, avoiding an immediate redundant keepalive. The
-default interval is 9 minutes. Keep it below the observed cutoff. This is an experimental workaround, and
-an accepted settings command may make the R600 beep every time it is sent.
+default interval is 9 minutes and can be changed from 1 to 9 whole minutes with the adjacent Home Assistant
+number entity. Both values are restored from flash after an ESP restart and remain unchanged across BLE
+disconnects. Changing either value restarts the timer; sending the already-current value does not create a
+new preference write. This is an experimental workaround, and an accepted settings command may make the R600
+beep every time it is sent.
+
+On each new BLE connection, when the keepalive switch is enabled, the component
+does not wait for the periodic interval: it sends one initial keepalive as soon
+as the station reports the first complete command-`0x03` settings snapshot.
+This is the earliest safe point because command `0x02` must preserve settings
+that are not all represented by Home Assistant entities. The configuration
+button sends the same learned snapshot once even when periodic keepalive is
+disabled; pressing it before BLE and the snapshot are ready is safely ignored.
 
 ### Optional Home Assistant unavailable controls
 
