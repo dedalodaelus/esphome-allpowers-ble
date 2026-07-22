@@ -37,3 +37,17 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## allpowers-companion
+
+The connection-health design was informed by the publicly documented behavior and observed status-request
+command in:
+
+- Project: `allpowers-companion`
+- Author: `R0b0To`
+- Repository: <https://github.com/R0b0To/allpowers-companion>
+- License: GPL-3.0
+
+No source code from `allpowers-companion` is incorporated into this MIT project. The ESPHome keepalive and
+watchdog were independently implemented in C++ using ESPHome's native BLE client lifecycle. This notice
+records the design reference and the license boundary; it does not relicense this project.

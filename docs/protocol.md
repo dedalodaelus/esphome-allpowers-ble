@@ -29,6 +29,33 @@ A5 65 .. .. .. LL CC [LL payload bytes] XX
 
 Valid but unsupported command families are ignored rather than interpreted using telemetry offsets.
 
+## Status subscription and connection health
+
+After notification registration, the component sends this observed station-facing request:
+
+```text
+A5 65 B1 00 01 06 01 00 00 00 00 00
+```
+
+`allpowers-companion` describes it as the request that starts or refreshes periodic status broadcasts. It
+is not treated as an XOR notification envelope: its bytes are reproduced exactly. The component sends it
+once after subscribing and then at `keepalive_interval` (20 seconds by default).
+
+Every structurally valid notification, including a valid but otherwise unsupported command, proves that
+the protocol link is alive. If none arrives within `watchdog_timeout` (45 seconds by default), the
+component asks ESPHome's BLE client to close the GATT link. The existing `auto_connect` policy then handles
+rediscovery and reconnection. A guard prevents repeated disconnect requests while the close event is
+pending. Invalid frames deliberately do not reset the watchdog.
+
+Notification-subscription failures and asynchronous GATT write failures also schedule a single disconnect
+from the component loop. This avoids performing GATT teardown inside an ESP-IDF callback while ensuring that
+ESPHome rediscovers services and characteristic handles instead of retaining an unusable session.
+
+This behavior was independently implemented from the public behavioral description and observed command
+in `R0b0To/allpowers-companion`; no GPL-licensed source code was copied. It supplements rather than
+replaces `stale_timeout`: the latter invalidates old entity values, while the watchdog repairs an apparently
+connected link that no longer transports valid packets.
+
 ## Telemetry notification: command `0x01`
 
 For complete command-`0x01` notifications of at least 16 bytes:

@@ -55,6 +55,8 @@ same status frame format. See [`docs/compatibility.md`](docs/compatibility.md).
 - Persistent connection control:
   - ON searches until connected and reconnects after link loss
   - OFF disconnects and stops attempting to connect
+- Active connection health: requests a fresh status broadcast every 20 seconds and recycles a
+  GATT link after 45 seconds without any valid protocol packet
 - Telemetry becomes unknown after BLE disconnection or stale data
 - Commands are rejected until the BLE link and telemetry are valid
 - ECO mode, shutdown-time, work-mode and car-charger commands are rejected until a fresh
@@ -130,6 +132,8 @@ Complete configurations are provided in:
 | `allpowers_mac` | Required | Stable BLE MAC address of the power station |
 | `allpowers_service_uuid` | `FFF0` | Configurable service UUID |
 | `allpowers_stale_timeout` | `30s` | Time before telemetry becomes unknown |
+| `allpowers_keepalive_interval` | `20s` | Interval between status-broadcast refresh requests; minimum `5s` |
+| `allpowers_watchdog_timeout` | `45s` | Silence before forcing reconnection; minimum `10s` and longer than keepalive |
 | `allpowers_enable_experimental_device_name` | `false` | Opt in to command-`0x35` name query/update |
 | `allpowers_connect_at_boot` | `true` | Start persistent searching after boot |
 | `allpowers_bootstrap_delay` | `10s` | Delay before initial BLE search |
@@ -193,6 +197,21 @@ When the BLE link is disconnected or telemetry expires, numeric and binary telem
 invalidated. Native ESPHome controls cannot all publish availability independently; `Settings Available`
 gates both ECO writes in firmware, and the component clears the select's confirmed value when its settings
 snapshot expires.
+
+The package already used ESPHome's native `auto_connect` behavior to reconnect after a real BLE
+disconnect. The connection-health layer covers a different failure mode: a GATT link that still appears
+connected but has stopped carrying notifications. It sends the observed status request immediately after
+notification registration and on the configured cadence. If no structurally valid protocol packet arrives
+before `allpowers_watchdog_timeout`, the component closes the link once; the existing ESPHome BLE client
+then discovers and reconnects it. The 30-second stale-data invalidation remains independent from the
+45-second connection watchdog. A failed notification subscription or asynchronous GATT write also closes
+the link from the main loop so ESPHome can rebuild the complete session.
+
+The status request and default timing are behavioral observations from
+[`R0b0To/allpowers-companion`](https://github.com/R0b0To/allpowers-companion). That project is GPL-3.0;
+this MIT implementation was written independently and does not incorporate its source code. The behavior
+has not yet been physically verified on every model, so retain the defaults until device logs demonstrate
+a need to tune them.
 
 ### Optional Home Assistant unavailable controls
 

@@ -23,6 +23,10 @@ for published releases.
   update with UTF-8, byte-length and response validation.
 - Read-only Bluetooth advertised-name diagnostic captured passively without
   requiring or enabling the experimental rename command.
+- Configurable connection-health keepalive (20 seconds by default) that requests
+  a fresh status broadcast immediately after subscribing and periodically.
+- Configurable 45-second connection watchdog that recycles an apparently
+  connected GATT link after valid protocol traffic stops.
 
 ### Changed
 
@@ -32,6 +36,10 @@ for published releases.
   all AC/DC/light output combinations, ECO read-modify-write preservation,
   every supported ECO shutdown-time value, all verified work modes, and both
   car-charger states.
+- Reuse ESPHome's native auto-connect lifecycle after watchdog-initiated
+  disconnects instead of maintaining a second reconnect scheduler.
+- Rebuild the BLE session after notification-subscription or asynchronous GATT
+  write failures instead of leaving an unusable link marked as established.
 
 ### Fixed
 
