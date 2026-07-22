@@ -49,7 +49,8 @@ same status frame format. See [`docs/compatibility.md`](docs/compatibility.md).
 - Independent car charger/12 V automotive socket state and control,
   disabled by default while hardware support is validated
 - Experimental Bluetooth device-name query and update using command `0x35`;
-  disabled by default and only evidenced by the official app for SOLIX/VOLIX P1800
+  disabled by default, retried at most three times per connection and only evidenced by the
+  official app for SOLIX/VOLIX P1800
 - Charging and discharging indicators derived from power flow
 - BLE connection state: `Disabled`, `Searching` or `Connected`
 - Persistent connection control:
@@ -137,6 +138,7 @@ Complete configurations are provided in:
 | `allpowers_enable_experimental_device_name` | `false` | Opt in to command-`0x35` name query/update |
 | `allpowers_connect_at_boot` | `true` | Start persistent searching after boot |
 | `allpowers_bootstrap_delay` | `10s` | Delay before initial BLE search |
+| `allpowers_advertised_name_wait_timeout` | `3s` | Maximum pre-connection wait for a fresh advertised name |
 | `allpowers_scan_interval` | `320ms` | ESP32 BLE scan interval |
 | `allpowers_scan_window` | `320ms` | ESP32 BLE scan window |
 | `allpowers_scan_active` | `true` | Active BLE scanning |
@@ -266,12 +268,17 @@ rename path only for `SOLIX P1800`/`VOLIX P1800`. There is no evidence in the su
 R600 accepts the command. Consequently, both the package option
 `allpowers_enable_experimental_device_name` and the disabled-by-default Home Assistant text entity
 must be enabled deliberately. The entity is non-optimistic: it remains unknown or retains its last
-confirmed value unless the station returns a valid command-`0x35` name response.
+confirmed value unless the station returns a valid command-`0x35` name response. The component makes
+three bounded queries per GATT connection (after 500 ms, then twice more at 3-second intervals) and
+cancels the remaining attempts as soon as a valid response arrives.
 
 The separate `BLE Advertised Name` diagnostic is always read-only. It captures the name passively
 from advertisements matching `allpowers_mac`, so it does not depend on command `0x35` support or
-send any request to the station. Active scanning must remain enabled for the complete advertised
-name to be obtained from scan-response data.
+send any request to the station. Before each connection attempt, the package temporarily keeps
+`BLEClient` auto-connect disabled while active scanning waits for a fresh name. Receipt of the name
+starts the connection immediately; otherwise the connection proceeds after
+`allpowers_advertised_name_wait_timeout`, so a device that omits its name cannot block telemetry.
+Active scanning must remain enabled for a complete name carried in scan-response data.
 
 ## Local validation
 

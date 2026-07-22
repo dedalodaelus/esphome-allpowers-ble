@@ -23,6 +23,8 @@ for published releases.
   update with UTF-8, byte-length and response validation.
 - Read-only Bluetooth advertised-name diagnostic captured passively without
   requiring or enabling the experimental rename command.
+- Bounded pre-connection advertisement window that tries to capture a fresh BLE
+  local name without allowing a missing name to block the connection.
 - Configurable connection-health keepalive (20 seconds by default) that requests
   a fresh status broadcast immediately after subscribing and periodically.
 - Configurable 45-second connection watchdog that recycles an apparently
@@ -40,6 +42,8 @@ for published releases.
   disconnects instead of maintaining a second reconnect scheduler.
 - Rebuild the BLE session after notification-subscription or asynchronous GATT
   write failures instead of leaving an unusable link marked as established.
+- Retry the optional command-`0x35` name query up to three times per connection
+  and cancel the remaining attempts after a valid response.
 
 ### Fixed
 

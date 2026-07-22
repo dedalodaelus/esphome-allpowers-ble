@@ -144,9 +144,13 @@ A5 65 00 B1 01 LL 35 [LL UTF-8 bytes] XX
 - A response uses command `0x35` and carries the current UTF-8 name.
 
 The component validates length, checksum and UTF-8, and publishes only a returned value. It does not
-optimistically claim that a write succeeded. This command is disabled by default because the app gates it
-to SOLIX/VOLIX P1800; it has not been demonstrated on the R600 or the other families supported by the
-telemetry parser. Enabling it on another model is an explicit hardware experiment, not a compatibility claim.
+optimistically claim that a write succeeded. After notification subscription it waits 500 ms, then sends at
+most three queries, 3 seconds apart. A valid `0x35` response cancels the remaining attempts. The retry budget
+is reset for each new GATT connection and is never used as continuous polling.
+
+This command is disabled by default because the app gates it to SOLIX/VOLIX P1800; it has not been
+demonstrated on the R600 or the other families supported by the telemetry parser. Enabling it on another
+model is an explicit hardware experiment, not a compatibility claim.
 
 ## Experimental field
 
