@@ -12,6 +12,8 @@ WORK_MODE_MASK = 0x06
 WORK_MODE_SHIFT = 1
 WORK_MODES = (0, 1, 2)
 CAR_CHARGER_MASK = 0x10
+DEVICE_NAME_COMMAND = 0x35
+MAX_DEVICE_NAME_LENGTH = 96
 
 
 @dataclass(frozen=True)
@@ -147,6 +149,27 @@ def make_settings_frame(*, settings_flags: int, eco_time: int) -> bytes:
     )
     frame.append(xor_bytes(frame))
     return bytes(frame)
+
+
+def make_device_name_frame(name: str = "") -> bytes:
+    """Build the command-0x35 query/update frame found in the official app."""
+
+    payload = name.encode("utf-8")
+    if len(payload) > MAX_DEVICE_NAME_LENGTH or (name and not payload):
+        raise ValueError("device name must contain 1-96 UTF-8 bytes")
+    frame = bytearray((0xA5, 0x65, 0x00, 0xB1, 0x01, len(payload), DEVICE_NAME_COMMAND))
+    frame.extend(payload)
+    frame.append(xor_bytes(frame))
+    return bytes(frame)
+
+
+def parse_device_name(packet: bytes) -> str:
+    """Validate and decode a non-empty command-0x35 response."""
+
+    validate_notification(packet)
+    if packet[6] != DEVICE_NAME_COMMAND or not 1 <= packet[5] <= MAX_DEVICE_NAME_LENGTH:
+        raise ValueError("not a device-name response")
+    return packet[7:-1].decode("utf-8")
 
 
 def make_eco_mode_frame(
@@ -339,6 +362,35 @@ def test_car_charger_preserves_other_settings() -> None:
     assert xor_bytes(enabled) == xor_bytes(disabled) == 0
 
 
+def test_device_name_query_and_utf8_update() -> None:
+    """Match the app's empty query and UTF-8 byte-counted update frames."""
+
+    query = make_device_name_frame()
+    update = make_device_name_frame("R600 Garaje")
+    unicode_update = make_device_name_frame("Estaci\u00f3n \u26a1")
+
+    assert query.hex().upper() == "A56500B101003545"
+    assert update.hex().upper() == "A56500B1010B355236303020476172616A6530"
+    assert unicode_update[5] == len("Estaci\u00f3n \u26a1".encode("utf-8"))
+    assert xor_bytes(query) == xor_bytes(update) == xor_bytes(unicode_update) == 0
+
+
+def test_device_name_response_and_limits() -> None:
+    """Decode a confirmed response and reject names above the app's limit."""
+
+    response = bytearray(make_device_name_frame("Taller"))
+    response[2], response[3] = response[3], response[2]
+    response[-1] = xor_bytes(response[:-1])
+    assert parse_device_name(bytes(response)) == "Taller"
+
+    try:
+        make_device_name_frame("\u00e1" * 49)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("device name above 96 UTF-8 bytes was accepted")
+
+
 def test_unsupported_work_mode_is_rejected() -> None:
     """Reject the reserved two-bit value and values outside the field."""
 
@@ -361,5 +413,7 @@ if __name__ == "__main__":
     test_unsupported_eco_shutdown_time_is_rejected()
     test_work_mode_preserves_other_settings()
     test_car_charger_preserves_other_settings()
+    test_device_name_query_and_utf8_update()
+    test_device_name_response_and_limits()
     test_unsupported_work_mode_is_rejected()
     print("Protocol tests passed")
