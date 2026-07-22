@@ -440,6 +440,14 @@ switch:
   - platform: allpowers_ble
     allpowers_ble_id: ${allpowers_id}
 
+    # Experimental R600 inactivity workaround. Its last state is restored from
+    # flash at boot and remains unchanged across BLE disconnects.
+    settings_keepalive:
+      id: ${allpowers_id}_settings_keepalive
+      name: "R600 Settings Keepalive"
+      device_id: ${allpowers_id}_device
+      icon: mdi:timer-sync-outline
+
     ac_output:
       id: ${allpowers_id}_ac_output
       name: "AC Output"
@@ -469,3 +477,28 @@ switch:
       id: ${allpowers_id}_light
       name: "Light"
       device_id: ${allpowers_id}_device
+
+number:
+  - platform: allpowers_ble
+    allpowers_ble_id: ${allpowers_id}
+
+    # Whole minutes below the observed ten-minute R600 cutoff. The last value
+    # selected in Home Assistant is restored from flash at boot.
+    settings_keepalive_interval:
+      id: ${allpowers_id}_settings_keepalive_interval
+      name: "R600 Settings Keepalive Interval"
+      device_id: ${allpowers_id}_device
+      mode: box
+
+button:
+  - platform: allpowers_ble
+    allpowers_ble_id: ${allpowers_id}
+
+    # Sends the learned settings snapshot once, even when the periodic
+    # keepalive switch is off. It is ignored until BLE is ready and command
+    # 0x03 has supplied a snapshot in the current connection.
+    send_settings_keepalive:
+      id: ${allpowers_id}_send_settings_keepalive
+      name: "Send R600 Settings Keepalive Now"
+      device_id: ${allpowers_id}_device
+      icon: mdi:timer-play-outline
