@@ -58,8 +58,8 @@ same status frame format. See [`docs/compatibility.md`](docs/compatibility.md).
   - OFF disconnects and stops attempting to connect
 - Active connection health: requests a fresh status broadcast every 20 seconds and recycles a
   GATT link after 45 seconds without any valid protocol packet
-- Optional R600 settings keepalive: resends the last station-reported settings every 9 minutes
-  to work around the observed 10-minute disconnect; disabled by default due to beep
+- Optional settings keepalive: resends the last station-reported settings every 9 minutes
+  to mitigate model-dependent long-session disconnects; disabled by default due to beep
 - Telemetry becomes unknown after BLE disconnection or stale data
 - Commands are rejected until the BLE link and telemetry are valid
 - ECO mode, shutdown-time, work-mode and car-charger commands are rejected until a fresh
@@ -179,9 +179,9 @@ bluetooth_proxy:
 | ECO Shutdown Time | Select |
 | Work Mode | Select |
 | Car Charger | Switch |
-| R600 Settings Keepalive | Persistent configuration switch |
-| R600 Settings Keepalive Interval | Persistent number (`1`-`9` minutes) |
-| Send R600 Settings Keepalive Now | Configuration button |
+| Settings Keepalive | Persistent configuration switch |
+| Settings Keepalive Interval | Persistent number (`1`-`9` minutes) |
+| Send Settings Keepalive Now | Configuration button |
 | Bluetooth Name (Experimental) | Text |
 | AC Output Status | Binary sensor |
 | DC Output Status | Binary sensor |
@@ -222,17 +222,18 @@ this MIT implementation was written independently and does not incorporate its s
 has not yet been physically verified on every model, so retain the defaults until device logs demonstrate
 a need to tune them.
 
-The separate settings keepalive targets a different R600 behavior: the station can close a healthy BLE
-connection at about 10 minutes even though notifications continue and the status requests succeed. Enable
-it with the `R600 Settings Keepalive` switch in Home Assistant. At the configured interval, the component
+The separate settings keepalive targets a different long-session behavior: some stations can close a
+healthy BLE connection after several minutes even though notifications continue and the status requests
+succeed. Enable it with the `Settings Keepalive` switch in Home Assistant. At the configured interval, the component
 reuses the most recent complete settings bitmap and ECO timeout reported by the station and sends them back
 unchanged as command `0x02`; it skips the write if no settings snapshot was received in that connection.
 An output-control or settings write restarts this interval, avoiding an immediate redundant keepalive. The
 default interval is 9 minutes and can be changed from 1 to 9 whole minutes with the adjacent Home Assistant
 number entity. Both values are restored from flash after an ESP restart and remain unchanged across BLE
 disconnects. Changing either value restarts the timer; sending the already-current value does not create a
-new preference write. This is an experimental workaround, and an accepted settings command may make the R600
-beep every time it is sent.
+new preference write. This is an experimental workaround, and an accepted settings command may make some
+stations beep every time it is sent. Current physical evidence is from R600-class devices; community
+validation on other compatible models is requested.
 
 On each new BLE connection, when the keepalive switch is enabled, the component
 does not wait for the periodic interval: it sends one initial keepalive as soon

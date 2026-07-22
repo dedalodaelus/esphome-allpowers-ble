@@ -29,9 +29,9 @@ for published releases.
   a fresh status broadcast immediately after subscribing and periodically.
 - Configurable 45-second connection watchdog that recycles an apparently
   connected GATT link after valid protocol traffic stops.
-- Experimental, disabled-by-default R600 settings keepalive (due to beep) that resends the
+- Experimental, disabled-by-default keepalive (due to beep) that resends the
   last station-reported settings snapshot every 9 minutes by default.
-- Persistent Home Assistant controls for enabling the R600 settings keepalive
+- Persistent Home Assistant controls for enabling keepalive
   and changing its interval from 1 to 9 minutes without reflashing.
 - Initial settings keepalive after every newly established BLE session, sent
   as soon as that session provides a real settings snapshot, plus a manual
