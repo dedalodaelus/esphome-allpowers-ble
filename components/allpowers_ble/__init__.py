@@ -24,6 +24,8 @@ CONF_SERVICE_UUID = "service_uuid"
 CONF_STALE_TIMEOUT = "stale_timeout"
 CONF_KEEPALIVE_INTERVAL = "keepalive_interval"
 CONF_WATCHDOG_TIMEOUT = "watchdog_timeout"
+CONF_ENABLE_SETTINGS_KEEPALIVE = "enable_settings_keepalive"
+CONF_SETTINGS_KEEPALIVE_INTERVAL = "settings_keepalive_interval"
 CONF_ENABLE_EXPERIMENTAL_DEVICE_NAME = "enable_experimental_device_name"
 
 allpowers_ble_ns = cg.esphome_ns.namespace("allpowers_ble")
@@ -61,6 +63,8 @@ def _validate_connection_health(config):
         raise cv.Invalid("watchdog_timeout must be at least 10s")
     if keepalive_ms >= watchdog_ms:
         raise cv.Invalid("keepalive_interval must be shorter than watchdog_timeout")
+    if config[CONF_SETTINGS_KEEPALIVE_INTERVAL].total_milliseconds < 60000:
+        raise cv.Invalid("settings_keepalive_interval must be at least 1min")
     return config
 
 
@@ -77,6 +81,10 @@ CONFIG_SCHEMA = cv.All(
             ): cv.positive_time_period_milliseconds,
             cv.Optional(
                 CONF_WATCHDOG_TIMEOUT, default="45s"
+            ): cv.positive_time_period_milliseconds,
+            cv.Optional(CONF_ENABLE_SETTINGS_KEEPALIVE, default=False): cv.boolean,
+            cv.Optional(
+                CONF_SETTINGS_KEEPALIVE_INTERVAL, default="9min"
             ): cv.positive_time_period_milliseconds,
             cv.Optional(
                 CONF_ENABLE_EXPERIMENTAL_DEVICE_NAME, default=False
@@ -117,6 +125,12 @@ async def to_code(config):
         var.set_keepalive_interval(config[CONF_KEEPALIVE_INTERVAL].total_milliseconds)
     )
     cg.add(var.set_watchdog_timeout(config[CONF_WATCHDOG_TIMEOUT].total_milliseconds))
+    cg.add(var.set_settings_keepalive_enabled(config[CONF_ENABLE_SETTINGS_KEEPALIVE]))
+    cg.add(
+        var.set_settings_keepalive_interval(
+            config[CONF_SETTINGS_KEEPALIVE_INTERVAL].total_milliseconds
+        )
+    )
     cg.add(
         var.set_experimental_device_name_enabled(
             config[CONF_ENABLE_EXPERIMENTAL_DEVICE_NAME]
