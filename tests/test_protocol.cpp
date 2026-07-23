@@ -62,6 +62,22 @@ void test_status_boundaries() {
   assert(status.input_power == 65535);
   assert(status.output_power == 0);
   assert(status.remaining_minutes == 65535);
+
+  const std::vector<uint8_t> full =
+      make_notification(protocol::STATUS_COMMAND, {0x00, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
+  assert(protocol::parse_status(full.data(), full.size(), &status) == protocol::ParseError::NONE);
+  assert(status.soc == 100);
+}
+
+void test_invalid_status_semantics() {
+  protocol::StatusData status;
+  for (const uint8_t invalid_soc : {static_cast<uint8_t>(101), static_cast<uint8_t>(255)}) {
+    const std::vector<uint8_t> packet =
+        make_notification(protocol::STATUS_COMMAND, {0x00, invalid_soc, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
+    assert(protocol::validate_frame(packet.data(), packet.size()) == protocol::ParseError::NONE);
+    assert(protocol::parse_status(packet.data(), packet.size(), &status) ==
+           protocol::ParseError::INVALID_STATE_OF_CHARGE);
+  }
 }
 
 void test_settings_parser() {
@@ -244,6 +260,7 @@ void test_gatt_discovery_terminal_paths() {
 int main() {
   test_status_parser();
   test_status_boundaries();
+  test_invalid_status_semantics();
   test_settings_parser();
   test_version_formatter();
   test_invalid_frames();

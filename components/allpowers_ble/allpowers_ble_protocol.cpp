@@ -59,6 +59,8 @@ ParseError parse_status(const uint8_t *data, size_t length, StatusData *status) 
     return ParseError::WRONG_COMMAND;
   if (length < MIN_STATUS_PACKET_LENGTH)
     return ParseError::INCOMPLETE_STATUS;
+  if (data[SOC_OFFSET] > 100U)
+    return ParseError::INVALID_STATE_OF_CHARGE;
 
   StatusData parsed;
   parsed.status = data[STATUS_OFFSET];
@@ -131,6 +133,8 @@ const char *parse_error_message(ParseError error) {
       return "unexpected command";
     case ParseError::INCOMPLETE_STATUS:
       return "incomplete status packet";
+    case ParseError::INVALID_STATE_OF_CHARGE:
+      return "state of charge is outside 0-100%";
     case ParseError::INCOMPLETE_SETTINGS:
       return "incomplete settings packet";
     case ParseError::INVALID_DEVICE_NAME_LENGTH:

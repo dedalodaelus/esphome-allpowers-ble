@@ -81,6 +81,12 @@ For complete command-`0x01` notifications of at least 16 bytes:
 | Bytes 11-12 | Total output power, big-endian watts |
 | Bytes 13-14 | Estimated remaining time, big-endian minutes |
 
+State of charge is the only telemetry field with a documented semantic range:
+values from `0` through `100` are accepted and `101` through `255` are rejected.
+No maximum power or remaining-time limit is imposed because the available
+protocol evidence does not define one; unknown fields and unverified sentinel
+values are therefore preserved rather than guessed.
+
 ## Output control frame
 
 The existing AC/DC/light command has this shape:

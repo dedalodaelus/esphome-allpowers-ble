@@ -75,6 +75,9 @@ def parse_status(packet: bytes) -> Status:
     if packet[6] != STATUS_COMMAND or len(packet) < 16:
         raise ValueError("not a complete status packet")
 
+    if packet[8] > 100:
+        raise ValueError("state of charge is outside 0-100%")
+
     status = packet[7]
     return Status(
         dc_on=bool(status & 0x01),
@@ -359,6 +362,29 @@ def test_status_parser() -> None:
     assert parsed.input_w == 300
     assert parsed.output_w == 250
     assert parsed.remaining_min == 120
+
+
+def test_status_semantic_boundaries() -> None:
+    """Accept 0-100% SOC and reject intact frames outside that range."""
+
+    for soc in (0, 100):
+        payload = bytes((0, soc, 0, 0, 0, 0, 0, 0))
+        packet = bytearray((0xA5, 0x65, 0xB1, 0, 1, len(payload), STATUS_COMMAND))
+        packet.extend(payload)
+        packet.append(xor_bytes(packet))
+        assert parse_status(bytes(packet)).soc_percent == soc
+
+    for soc in (101, 255):
+        payload = bytes((0, soc, 0, 0, 0, 0, 0, 0))
+        packet = bytearray((0xA5, 0x65, 0xB1, 0, 1, len(payload), STATUS_COMMAND))
+        packet.extend(payload)
+        packet.append(xor_bytes(packet))
+        try:
+            parse_status(bytes(packet))
+        except ValueError as error:
+            assert "state of charge" in str(error)
+        else:
+            raise AssertionError(f"SOC {soc} should have been rejected")
 
 
 def test_settings_parser() -> None:
