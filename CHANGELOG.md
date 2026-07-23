@@ -48,6 +48,9 @@ for published releases.
 - Runtime BLE protocol diagnostics with history counters and last-error details:
   total protocol errors, consecutive protocol errors, last protocol error text,
   and last protocol error uptime (all exposed as optional diagnostic entities).
+- Dedicated CI fixture configs: shared `tests/ci-base.yaml` for common build
+  setup and `tests/ci-multi.yaml` to validate two concurrent ALLPOWERS package
+  instances with distinct IDs and MAC addresses.
 
 ### Changed
 
@@ -94,6 +97,11 @@ for published releases.
 - Added native regression tests for protocol diagnostic history, including
   total-error accumulation, consecutive-error reset on success, last-error
   reason/uptime tracking, and session-latch reset behavior.
+- Expanded CI compilation coverage to include ESP32 and ESP32-S3 on ESP-IDF,
+  ESP32 on Arduino, and a dual-station ESP-IDF configuration, with matrix
+  variables for framework and config path.
+- Refactored `tests/ci.yaml` to include the shared `ci-base.yaml` package so
+  common compile scaffolding is centralized and reused across CI scenarios.
 
 ### Fixed
 

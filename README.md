@@ -72,7 +72,7 @@ same status frame format. See [`docs/compatibility.md`](docs/compatibility.md).
 
 - ESP32 with BLE client support
 - ESPHome `2026.7.0` or newer
-- ESP-IDF framework recommended
+- ESP-IDF framework recommended; both ESP-IDF and Arduino are compiled in CI
 - Stable BLE MAC address for the power station
 - A compatible `FFF0`/`FFF1`/`FFF2` GATT layout and packet format
 
@@ -380,7 +380,8 @@ esphome \
   compile tests/ci.yaml
 ```
 
-GitHub Actions runs the same quality checks and compiles both the classic ESP32 and ESP32-S3 targets.
+GitHub Actions runs the same quality checks and compiles classic ESP32 and ESP32-S3 with ESP-IDF,
+classic ESP32 with Arduino, and two independent station instances in one ESP-IDF firmware.
 
 ## Reporting compatibility
 
