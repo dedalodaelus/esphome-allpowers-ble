@@ -248,6 +248,24 @@ sensor:
       entity_category: diagnostic
       disabled_by_default: true
 
+    protocol_error_count:
+      id: ${allpowers_id}_protocol_error_count
+      name: "BLE Protocol Error Count"
+      device_id: ${allpowers_id}_device
+      disabled_by_default: true
+
+    consecutive_protocol_errors:
+      id: ${allpowers_id}_consecutive_protocol_errors
+      name: "Consecutive BLE Protocol Errors"
+      device_id: ${allpowers_id}_device
+      disabled_by_default: true
+
+    last_protocol_error_uptime:
+      id: ${allpowers_id}_last_protocol_error_uptime
+      name: "Last BLE Protocol Error Uptime"
+      device_id: ${allpowers_id}_device
+      disabled_by_default: true
+
   - platform: ble_client
     type: rssi
     ble_client_id: ${allpowers_id}_ble_client
@@ -363,6 +381,12 @@ text_sensor:
       id: ${allpowers_id}_firmware_version
       name: "Firmware Version"
       device_id: ${allpowers_id}_device
+
+    last_protocol_error:
+      id: ${allpowers_id}_last_protocol_error
+      name: "Last BLE Protocol Error"
+      device_id: ${allpowers_id}_device
+      disabled_by_default: true
 
 text:
   - platform: allpowers_ble
