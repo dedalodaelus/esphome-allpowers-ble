@@ -1,0 +1,23 @@
+substitutions:
+  test_board: esp32dev
+  test_device_name: allpowers-ble-ci
+  test_framework: esp-idf
+
+esphome:
+  name: ${test_device_name}
+  friendly_name: ALLPOWERS BLE CI
+
+esp32:
+  board: ${test_board}
+  framework:
+    type: ${test_framework}
+
+logger:
+
+external_components:
+  # CI must compile the checked-out component rather than a published release.
+  - source:
+      type: local
+      path: ../components
+    components:
+      - allpowers_ble

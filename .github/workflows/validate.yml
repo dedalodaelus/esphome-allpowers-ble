@@ -109,13 +109,29 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: ESP32
+          - name: ESP32 (ESP-IDF)
             board: esp32dev
             device_name: allpowers-ble-ci-esp32
+            framework: esp-idf
+            config: tests/ci.yaml
 
-          - name: ESP32-S3
+          - name: ESP32-S3 (ESP-IDF)
             board: esp32-s3-devkitc-1
             device_name: allpowers-ble-ci-esp32-s3
+            framework: esp-idf
+            config: tests/ci.yaml
+
+          - name: ESP32 (Arduino)
+            board: esp32dev
+            device_name: allpowers-ble-ci-arduino
+            framework: arduino
+            config: tests/ci.yaml
+
+          - name: ESP32 dual station (ESP-IDF)
+            board: esp32dev
+            device_name: allpowers-ble-ci-multi
+            framework: esp-idf
+            config: tests/ci-multi.yaml
 
     steps:
       - name: Check out repository
@@ -133,9 +149,10 @@ jobs:
         with:
           path: ~/.platformio
           key: >-
-            platformio-${{ runner.os }}-${{ matrix.board }}-
+            platformio-${{ runner.os }}-${{ matrix.board }}-${{ matrix.framework }}-
             ${{ hashFiles('requirements-ci.txt') }}
           restore-keys: |
+            platformio-${{ runner.os }}-${{ matrix.board }}-${{ matrix.framework }}-
             platformio-${{ runner.os }}-${{ matrix.board }}-
             platformio-${{ runner.os }}-
 
@@ -149,7 +166,8 @@ jobs:
           esphome \
             -s test_board "${{ matrix.board }}" \
             -s test_device_name "${{ matrix.device_name }}" \
-            compile tests/ci.yaml
+            -s test_framework "${{ matrix.framework }}" \
+            compile "${{ matrix.config }}"
 
   ci-success:
     name: CI passed

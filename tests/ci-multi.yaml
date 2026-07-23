@@ -1,0 +1,21 @@
+packages:
+  ci_base: !include ci-base.yaml
+
+  # Compile two complete public-package instances together. Distinct prefixes,
+  # MAC addresses and generated entity IDs make accidental shared state or ID
+  # collisions fail during ESPHome validation/code generation.
+  allpowers_station_one: !include
+    file: ../packages/allpowers_ble.yaml
+    vars:
+      allpowers_id: allpowers_one
+      allpowers_name: "ALLPOWERS Test Station One"
+      allpowers_mac: "AA:BB:CC:DD:EE:01"
+      allpowers_connect_at_boot: "false"
+
+  allpowers_station_two: !include
+    file: ../packages/allpowers_ble.yaml
+    vars:
+      allpowers_id: allpowers_two
+      allpowers_name: "ALLPOWERS Test Station Two"
+      allpowers_mac: "AA:BB:CC:DD:EE:02"
+      allpowers_connect_at_boot: "false"
