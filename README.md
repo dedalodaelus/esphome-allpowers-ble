@@ -343,45 +343,15 @@ pip install -r requirements-lint.txt
 pip install -r requirements-ci.txt
 ```
 
-Run the quality checks:
+Run the complete validation suite used by CI:
 
 ```bash
-python -m compileall -q components tests
-ruff check components tests
-ruff format --check components tests
-flake8 components tests
-pylint components/allpowers_ble tests/test_protocol.py
-clang-format --dry-run --Werror \
-  components/allpowers_ble/allpowers_ble.h \
-  components/allpowers_ble/allpowers_ble.cpp
-cpplint \
-  components/allpowers_ble/allpowers_ble.h \
-  components/allpowers_ble/allpowers_ble.cpp
-yamllint \
-  .github/workflows \
-  packages \
-  examples \
-  tests/ci.yaml \
-  home_assistant/allpowers_ble_controls.yaml.example
-python -m pytest tests
+./scripts/validate.sh
 ```
 
-Compile both targets used by GitHub Actions:
-
-```bash
-esphome \
-  -s test_board esp32dev \
-  -s test_device_name allpowers-ble-ci-esp32 \
-  compile tests/ci.yaml
-
-esphome \
-  -s test_board esp32-s3-devkitc-1 \
-  -s test_device_name allpowers-ble-ci-esp32-s3 \
-  compile tests/ci.yaml
-```
-
-GitHub Actions runs the same quality checks and compiles classic ESP32 and ESP32-S3 with ESP-IDF,
+The script runs every lint and test, then compiles classic ESP32 and ESP32-S3 with ESP-IDF,
 classic ESP32 with Arduino, and two independent station instances in one ESP-IDF firmware.
+GitHub Actions invokes this same command.
 
 ## Reporting compatibility
 

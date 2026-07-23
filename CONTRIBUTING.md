@@ -51,21 +51,8 @@ the protocol easier to understand without additional prose.
 Run:
 
 ```bash
-pip install -r requirements-lint.txt
-python -m compileall -q components tests
-ruff check components tests
-ruff format --check components tests
-flake8 components tests
-pylint components/allpowers_ble tests/test_protocol.py
-clang-format --dry-run --Werror \
-  components/allpowers_ble/allpowers_ble.h \
-  components/allpowers_ble/allpowers_ble.cpp
-cpplint \
-  components/allpowers_ble/allpowers_ble.h \
-  components/allpowers_ble/allpowers_ble.cpp
-python -m pytest tests
-esphome config tests/ci.yaml
-esphome compile tests/ci.yaml
+pip install -r requirements-lint.txt -r requirements-ci.txt
+./scripts/validate.sh
 ```
 
 Keep user-visible behavior documented in the README and changelog.

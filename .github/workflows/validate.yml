@@ -19,10 +19,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quality:
-    name: Code quality
+  validation:
+    name: Complete validation
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 90
 
     steps:
       - name: Check out repository
@@ -37,152 +37,37 @@ jobs:
             requirements-lint.txt
             requirements-ci.txt
 
-      - name: Install quality dependencies
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: >-
+            platformio-${{ runner.os }}-
+            ${{ hashFiles('requirements-ci.txt', 'scripts/validate.sh') }}
+          restore-keys: |
+            platformio-${{ runner.os }}-
+
+      - name: Install validation dependencies
         run: |
           python -m pip install --upgrade pip
           pip install \
             -r requirements-lint.txt \
             -r requirements-ci.txt
 
-      - name: Check Python syntax
-        run: python -m compileall -q components tests
-
-      - name: Ruff lint
-        run: ruff check components tests
-
-      - name: Ruff format
-        run: ruff format --check components tests
-
-      - name: Flake8
-        run: flake8 components tests
-
-      - name: Pylint
-        run: pylint components/allpowers_ble tests/test_protocol.py
-
-      - name: ClangFormat
-        run: |
-          clang-format --dry-run --Werror \
-            components/allpowers_ble/*.h \
-            components/allpowers_ble/*.cpp \
-            tests/test_protocol.cpp
-
-      - name: CppLint
-        run: |
-          cpplint \
-            components/allpowers_ble/*.h \
-            components/allpowers_ble/*.cpp \
-            tests/test_protocol.cpp
-
-      - name: YAML lint
-        run: |
-          yamllint \
-            .github/workflows \
-            packages \
-            examples \
-            tests/ci.yaml \
-            home_assistant/allpowers_ble_controls.yaml.example
-
-      - name: Native C++ protocol tests
-        run: |
-          g++ \
-            -std=c++17 \
-            -Wall \
-            -Wextra \
-            -Werror \
-            -pedantic \
-            -Icomponents/allpowers_ble \
-            components/allpowers_ble/allpowers_ble_protocol.cpp \
-            tests/test_protocol.cpp \
-            -o /tmp/allpowers-ble-protocol-tests
-          /tmp/allpowers-ble-protocol-tests
-
-      - name: Python protocol regression tests
-        run: python -m pytest tests
-
-  build:
-    name: Build ${{ matrix.name }}
-    needs: quality
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: ESP32 (ESP-IDF)
-            board: esp32dev
-            device_name: allpowers-ble-ci-esp32
-            framework: esp-idf
-            config: tests/ci.yaml
-
-          - name: ESP32-S3 (ESP-IDF)
-            board: esp32-s3-devkitc-1
-            device_name: allpowers-ble-ci-esp32-s3
-            framework: esp-idf
-            config: tests/ci.yaml
-
-          - name: ESP32 (Arduino)
-            board: esp32dev
-            device_name: allpowers-ble-ci-arduino
-            framework: arduino
-            config: tests/ci.yaml
-
-          - name: ESP32 dual station (ESP-IDF)
-            board: esp32dev
-            device_name: allpowers-ble-ci-multi
-            framework: esp-idf
-            config: tests/ci-multi.yaml
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: requirements-ci.txt
-
-      - name: Cache PlatformIO
-        uses: actions/cache@v4
-        with:
-          path: ~/.platformio
-          key: >-
-            platformio-${{ runner.os }}-${{ matrix.board }}-${{ matrix.framework }}-
-            ${{ hashFiles('requirements-ci.txt') }}
-          restore-keys: |
-            platformio-${{ runner.os }}-${{ matrix.board }}-${{ matrix.framework }}-
-            platformio-${{ runner.os }}-${{ matrix.board }}-
-            platformio-${{ runner.os }}-
-
-      - name: Install ESPHome
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-ci.txt
-
-      - name: Compile test firmware
-        run: |
-          esphome \
-            -s test_board "${{ matrix.board }}" \
-            -s test_device_name "${{ matrix.device_name }}" \
-            -s test_framework "${{ matrix.framework }}" \
-            compile "${{ matrix.config }}"
+      - name: Run complete validation
+        run: ./scripts/validate.sh
 
   ci-success:
     name: CI passed
     if: always()
     needs:
-      - quality
-      - build
+      - validation
     runs-on: ubuntu-latest
     timeout-minutes: 2
 
     steps:
       - name: Verify required jobs
         env:
-          QUALITY_RESULT: ${{ needs.quality.result }}
-          BUILD_RESULT: ${{ needs.build.result }}
+          VALIDATION_RESULT: ${{ needs.validation.result }}
         run: |
-          test "$QUALITY_RESULT" = "success"
-          test "$BUILD_RESULT" = "success"
+          test "$VALIDATION_RESULT" = "success"
