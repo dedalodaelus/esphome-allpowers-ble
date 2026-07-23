@@ -76,6 +76,12 @@ for published releases.
 - Added native tests that cover every terminal GATT discovery outcome
   (missing `FFF1`/`FFF2`, unsupported properties, and notification registration
   queue/failure paths) plus successful subscribe readiness.
+- Clarified protocol documentation to define the semantic telemetry range for
+  state of charge (`0`-`100`) while preserving unknown high-range values for
+  other status fields that lack verified limits.
+- Extended both native C++ and Python protocol regression tests to accept
+  boundary SOC values (`0` and `100`) and reject intact status frames with
+  out-of-range SOC values (`101`-`255`).
 
 ### Fixed
 
@@ -92,6 +98,8 @@ for published releases.
   characteristics, unsupported properties, or notification registration errors.
 - Corrected compatibility documentation to require a minimum 16-byte status
   notification frame (header `A5 65`) instead of 15 bytes.
+- Reject semantically invalid status packets when the reported state of charge
+  is outside `0`-`100`, with a dedicated protocol parse error message.
 
 ## [0.1.0] - 2026/07/20
 
