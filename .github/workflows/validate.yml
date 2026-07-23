@@ -19,34 +19,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  validation:
-    name: ${{ matrix.name }}
+  quality:
+    name: Code quality
     runs-on: ubuntu-latest
-    timeout-minutes: 75
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Code quality
-            mode: code-quality
-            cache_deps: requirements-lint.txt
-          - name: Build ESP32 (ESP-IDF)
-            mode: build-target
-            target: esp32-idf
-            cache_deps: requirements-ci.txt
-          - name: Build ESP32-S3 (ESP-IDF)
-            mode: build-target
-            target: esp32s3-idf
-            cache_deps: requirements-ci.txt
-          - name: Build ESP32 (Arduino)
-            mode: build-target
-            target: esp32-arduino
-            cache_deps: requirements-ci.txt
-          - name: Build ESP32 dual station (ESP-IDF)
-            mode: build-target
-            target: esp32-multi-idf
-            cache_deps: requirements-ci.txt
+    timeout-minutes: 20
 
     steps:
       - name: Check out repository
@@ -57,10 +33,51 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: ${{ matrix.cache_deps }}
+          cache-dependency-path: |
+            requirements-lint.txt
+            requirements-ci.txt
+
+      - name: Install code-quality dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install \
+            -r requirements-lint.txt \
+            -r requirements-ci.txt
+
+      - name: Run code-quality checks
+        run: bash ./scripts/validate.sh code-quality
+
+  build:
+    name: Build ${{ matrix.name }}
+    # needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ESP32 (ESP-IDF)
+            target: esp32-idf
+          - name: ESP32-S3 (ESP-IDF)
+            target: esp32s3-idf
+          - name: ESP32 (Arduino)
+            target: esp32-arduino
+          - name: ESP32 dual station (ESP-IDF)
+            target: esp32-multi-idf
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
 
       - name: Cache PlatformIO
-        if: matrix.mode == 'build-target'
         uses: actions/cache@v4
         with:
           path: ~/.platformio
@@ -71,34 +88,28 @@ jobs:
             platformio-${{ runner.os }}-${{ matrix.target }}-
             platformio-${{ runner.os }}-
 
-      - name: Install code-quality dependencies
-        if: matrix.mode == 'code-quality'
-        run: |
-          python -m pip install --upgrade pip
-          pip install \
-            -r requirements-lint.txt \
-            -r requirements-ci.txt
-
       - name: Install build dependencies
-        if: matrix.mode == 'build-target'
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-ci.txt
 
-      - name: Run matrix validation target
-        run: ./scripts/validate.sh ${{ matrix.mode }} ${{ matrix.target || '' }}
+      - name: Run firmware build target
+        run: bash ./scripts/validate.sh build-target ${{ matrix.target }}
 
   ci-success:
     name: CI passed
     if: always()
     needs:
-      - validation
+      - quality
+      - build
     runs-on: ubuntu-latest
     timeout-minutes: 2
 
     steps:
       - name: Verify required jobs
         env:
-          VALIDATION_RESULT: ${{ needs.validation.result }}
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
         run: |
-          test "$VALIDATION_RESULT" = "success"
+          test "$QUALITY_RESULT" = "success"
+          test "$BUILD_RESULT" = "success"
