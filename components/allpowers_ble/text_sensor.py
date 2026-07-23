@@ -14,6 +14,7 @@ from . import CONF_ALLPOWERS_BLE_ID, AllpowersBLE, AllpowersBLEStationNameTextSe
 CONF_HARDWARE_VERSION = "hardware_version"
 CONF_FIRMWARE_VERSION = "firmware_version"
 CONF_STATION_NAME = "station_name"
+CONF_LAST_PROTOCOL_ERROR = "last_protocol_error"
 
 # These versions describe the power station and arrive in the settings report;
 # they are unrelated to the ESPHome version running on the BLE gateway.
@@ -25,6 +26,13 @@ TEXT_SENSORS = {
     CONF_FIRMWARE_VERSION: (
         "set_firmware_version_text_sensor",
         text_sensor.text_sensor_schema(entity_category=ENTITY_CATEGORY_DIAGNOSTIC),
+    ),
+    CONF_LAST_PROTOCOL_ERROR: (
+        "set_last_protocol_error_text_sensor",
+        text_sensor.text_sensor_schema(
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+            icon="mdi:alert-circle-outline",
+        ),
     ),
 }
 

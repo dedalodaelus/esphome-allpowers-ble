@@ -22,6 +22,7 @@
 #include "esphome/core/component.h"
 #include "esphome/core/preferences.h"
 
+#include "allpowers_ble_diagnostics.h"
 #include "allpowers_ble_protocol.h"
 #include "allpowers_ble_transport.h"
 
@@ -68,6 +69,13 @@ class AllpowersBLE final : public Component, public AllpowersBLETransport {
   void set_ac_frequency_sensor(sensor::Sensor *sensor) { this->ac_frequency_sensor_ = sensor; }
   void set_status_byte_sensor(sensor::Sensor *sensor) { this->status_byte_sensor_ = sensor; }
   void set_packet_length_sensor(sensor::Sensor *sensor) { this->packet_length_sensor_ = sensor; }
+  void set_protocol_error_count_sensor(sensor::Sensor *sensor) { this->protocol_error_count_sensor_ = sensor; }
+  void set_consecutive_protocol_errors_sensor(sensor::Sensor *sensor) {
+    this->consecutive_protocol_errors_sensor_ = sensor;
+  }
+  void set_last_protocol_error_uptime_sensor(sensor::Sensor *sensor) {
+    this->last_protocol_error_uptime_sensor_ = sensor;
+  }
 
   void set_hardware_version_text_sensor(text_sensor::TextSensor *sensor) {
     this->hardware_version_text_sensor_ = sensor;
@@ -77,6 +85,9 @@ class AllpowersBLE final : public Component, public AllpowersBLETransport {
   }
   void set_station_name_text_sensor(AllpowersBLEStationNameTextSensor *sensor) {
     this->station_name_text_sensor_ = sensor;
+  }
+  void set_last_protocol_error_text_sensor(text_sensor::TextSensor *sensor) {
+    this->last_protocol_error_text_sensor_ = sensor;
   }
 
   void set_connected_binary_sensor(binary_sensor::BinarySensor *sensor) { this->connected_binary_sensor_ = sensor; }
@@ -140,7 +151,10 @@ class AllpowersBLE final : public Component, public AllpowersBLETransport {
   void invalidate_settings_entities_();
   void publish_controls_available_(bool state);
   void publish_settings_available_(bool state);
-  void set_protocol_error_(bool state);
+  void record_protocol_error_(const char *category, const char *reason);
+  void record_protocol_success_();
+  void reset_protocol_error_latch_();
+  void publish_protocol_diagnostics_();
   void reset_connection_state_();
 
   void on_transport_connected_() override;
@@ -194,10 +208,14 @@ class AllpowersBLE final : public Component, public AllpowersBLETransport {
   sensor::Sensor *ac_frequency_sensor_{nullptr};
   sensor::Sensor *status_byte_sensor_{nullptr};
   sensor::Sensor *packet_length_sensor_{nullptr};
+  sensor::Sensor *protocol_error_count_sensor_{nullptr};
+  sensor::Sensor *consecutive_protocol_errors_sensor_{nullptr};
+  sensor::Sensor *last_protocol_error_uptime_sensor_{nullptr};
 
   text_sensor::TextSensor *hardware_version_text_sensor_{nullptr};
   text_sensor::TextSensor *firmware_version_text_sensor_{nullptr};
   AllpowersBLEStationNameTextSensor *station_name_text_sensor_{nullptr};
+  text_sensor::TextSensor *last_protocol_error_text_sensor_{nullptr};
 
   binary_sensor::BinarySensor *connected_binary_sensor_{nullptr};
   binary_sensor::BinarySensor *data_valid_binary_sensor_{nullptr};
@@ -210,6 +228,8 @@ class AllpowersBLE final : public Component, public AllpowersBLETransport {
   binary_sensor::BinarySensor *charging_binary_sensor_{nullptr};
   binary_sensor::BinarySensor *discharging_binary_sensor_{nullptr};
   binary_sensor::BinarySensor *protocol_error_binary_sensor_{nullptr};
+
+  ProtocolDiagnostics protocol_diagnostics_;
 
   AllpowersBLESwitch *ac_switch_{nullptr};
   AllpowersBLESwitch *dc_switch_{nullptr};

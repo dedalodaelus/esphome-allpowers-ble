@@ -14,9 +14,11 @@ from esphome.const import (
     DEVICE_CLASS_POWER,
     ENTITY_CATEGORY_DIAGNOSTIC,
     STATE_CLASS_MEASUREMENT,
+    STATE_CLASS_TOTAL_INCREASING,
     UNIT_HERTZ,
     UNIT_MINUTE,
     UNIT_PERCENT,
+    UNIT_SECOND,
     UNIT_WATT,
 )
 
@@ -29,6 +31,9 @@ CONF_REMAINING_TIME = "remaining_time"
 CONF_AC_FREQUENCY = "ac_frequency"
 CONF_STATUS_BYTE = "status_byte"
 CONF_PACKET_LENGTH = "packet_length"
+CONF_PROTOCOL_ERROR_COUNT = "protocol_error_count"
+CONF_CONSECUTIVE_PROTOCOL_ERRORS = "consecutive_protocol_errors"
+CONF_LAST_PROTOCOL_ERROR_UPTIME = "last_protocol_error_uptime"
 
 # Each entry pairs an ESPHome schema with the C++ setter receiving the created
 # entity. Keeping both in one table prevents schema/codegen drift as optional
@@ -94,6 +99,33 @@ SENSORS = {
             unit_of_measurement="B",
             accuracy_decimals=0,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        ),
+    ),
+    CONF_PROTOCOL_ERROR_COUNT: (
+        "set_protocol_error_count_sensor",
+        sensor.sensor_schema(
+            accuracy_decimals=0,
+            state_class=STATE_CLASS_TOTAL_INCREASING,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+            icon="mdi:counter",
+        ),
+    ),
+    CONF_CONSECUTIVE_PROTOCOL_ERRORS: (
+        "set_consecutive_protocol_errors_sensor",
+        sensor.sensor_schema(
+            accuracy_decimals=0,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+            icon="mdi:counter",
+        ),
+    ),
+    CONF_LAST_PROTOCOL_ERROR_UPTIME: (
+        "set_last_protocol_error_uptime_sensor",
+        sensor.sensor_schema(
+            unit_of_measurement=UNIT_SECOND,
+            accuracy_decimals=0,
+            device_class=DEVICE_CLASS_DURATION,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+            icon="mdi:timer-alert-outline",
         ),
     ),
 }

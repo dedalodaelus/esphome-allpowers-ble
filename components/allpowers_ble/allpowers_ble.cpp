@@ -30,7 +30,7 @@ void AllpowersBLE::setup() {
     this->data_valid_binary_sensor_->publish_state(false);
   this->publish_controls_available_(false);
   this->publish_settings_available_(false);
-  this->set_protocol_error_(false);
+  this->publish_protocol_diagnostics_();
 }
 
 void AllpowersBLE::dump_config() {
@@ -225,6 +225,7 @@ void AllpowersBLE::on_transport_connected_() {
 void AllpowersBLE::on_transport_disconnected_() { this->reset_connection_state_(); }
 
 void AllpowersBLE::on_transport_ready_() {
+  this->reset_protocol_error_latch_();
   this->start_connection_health_();
   if (this->experimental_device_name_enabled_ && this->device_name_text_ != nullptr) {
     this->device_name_query_active_ = true;
@@ -242,7 +243,7 @@ void AllpowersBLE::on_transport_error_(const char *reason, bool reconnect) {
   // immediately. The actual disconnect is deferred to loop() because ESP-IDF
   // callbacks must not tear down their own GATT session.
   this->reset_connection_state_();
-  this->set_protocol_error_(true);
+  this->record_protocol_error_("transport", reason);
   if (reconnect)
     this->schedule_forced_reconnect_(reason);
 }
@@ -256,7 +257,7 @@ void AllpowersBLE::process_notification_(const uint8_t *data, uint16_t length) {
   const protocol::ParseError validation = protocol::validate_frame(data, length);
   if (validation != protocol::ParseError::NONE) {
     ESP_LOGW(TAG, "Ignoring invalid notification: %s", protocol::parse_error_message(validation));
-    this->set_protocol_error_(true);
+    this->record_protocol_error_("frame", protocol::parse_error_message(validation));
     return;
   }
 
@@ -270,7 +271,7 @@ void AllpowersBLE::process_notification_(const uint8_t *data, uint16_t length) {
       const protocol::ParseError result = protocol::parse_status(data, length, &status);
       if (result != protocol::ParseError::NONE) {
         ESP_LOGW(TAG, "Ignoring invalid status notification: %s", protocol::parse_error_message(result));
-        this->set_protocol_error_(true);
+        this->record_protocol_error_("status", protocol::parse_error_message(result));
         return;
       }
       this->process_status_(status);
@@ -281,7 +282,7 @@ void AllpowersBLE::process_notification_(const uint8_t *data, uint16_t length) {
       const protocol::ParseError result = protocol::parse_settings(data, length, &settings);
       if (result != protocol::ParseError::NONE) {
         ESP_LOGW(TAG, "Ignoring invalid settings notification: %s", protocol::parse_error_message(result));
-        this->set_protocol_error_(true);
+        this->record_protocol_error_("settings", protocol::parse_error_message(result));
         return;
       }
       this->process_settings_(settings);
@@ -298,7 +299,7 @@ void AllpowersBLE::process_notification_(const uint8_t *data, uint16_t length) {
         this->update_station_name("", "invalid command 0x35 response", &stored_name);
         if (!stored_name.empty())
           this->device_name_text_->publish_state(stored_name);
-        this->set_protocol_error_(true);
+        this->record_protocol_error_("device name", protocol::parse_error_message(result));
         return;
       }
       this->process_device_name_(name);
@@ -308,7 +309,7 @@ void AllpowersBLE::process_notification_(const uint8_t *data, uint16_t length) {
       // Other valid command families exist in newer stations. They are not a
       // protocol fault and must not be interpreted as telemetry by offset.
       ESP_LOGV(TAG, "Ignoring unsupported notification command 0x%02X", data[protocol::COMMAND_OFFSET]);
-      this->set_protocol_error_(false);
+      this->record_protocol_success_();
       break;
   }
 }
@@ -319,7 +320,7 @@ void AllpowersBLE::process_device_name_(const std::string &name) {
     this->update_station_name("", "empty command 0x35 response", &stored_name);
     if (!stored_name.empty())
       this->device_name_text_->publish_state(stored_name);
-    this->set_protocol_error_(false);
+    this->record_protocol_success_();
     return;
   }
 
@@ -328,12 +329,12 @@ void AllpowersBLE::process_device_name_(const std::string &name) {
   if (!normalized_name.empty())
     this->device_name_text_->publish_state(normalized_name);
   if (!received_valid_name) {
-    this->set_protocol_error_(false);
+    this->record_protocol_success_();
     return;
   }
 
   this->device_name_query_active_ = false;
-  this->set_protocol_error_(false);
+  this->record_protocol_success_();
 }
 
 bool AllpowersBLE::update_station_name(const std::string &name, const char *source, std::string *normalized_name) {
@@ -390,7 +391,7 @@ void AllpowersBLE::process_status_(const protocol::StatusData &status) {
   if (this->data_valid_binary_sensor_ != nullptr)
     this->data_valid_binary_sensor_->publish_state(true);
   this->publish_controls_available_(this->controls_available_());
-  this->set_protocol_error_(false);
+  this->record_protocol_success_();
   this->publish_switch_states_();
 }
 
@@ -408,7 +409,7 @@ void AllpowersBLE::process_settings_(const protocol::SettingsData &settings) {
   if (this->firmware_version_text_sensor_ != nullptr)
     this->firmware_version_text_sensor_->publish_state(settings.firmware_version);
   this->publish_settings_available_(this->settings_available_());
-  this->set_protocol_error_(false);
+  this->record_protocol_success_();
 
   ESP_LOGD(TAG,
            "Settings: flags=0x%02X, ECO=%s, ECO timeout=%u, work mode=%u, car charger=%s, hardware=%s, "
@@ -814,9 +815,52 @@ void AllpowersBLE::publish_settings_available_(bool state) {
     this->settings_available_binary_sensor_->publish_state(state);
 }
 
-void AllpowersBLE::set_protocol_error_(bool state) {
+void AllpowersBLE::record_protocol_error_(const char *category, const char *reason) {
+  std::string detail(category);
+  detail.append(": ");
+  detail.append(reason);
+  this->protocol_diagnostics_.record_error(detail, millis());
+  ESP_LOGW(TAG, "BLE diagnostic error #" PRIu32 " (consecutive #" PRIu32 "): %s",
+           this->protocol_diagnostics_.total_errors(), this->protocol_diagnostics_.consecutive_errors(),
+           detail.c_str());
+  this->publish_protocol_diagnostics_();
+}
+
+void AllpowersBLE::record_protocol_success_() {
+  if (this->protocol_diagnostics_.consecutive_errors() == 0)
+    return;
+  this->protocol_diagnostics_.record_success();
+  if (this->consecutive_protocol_errors_sensor_ != nullptr)
+    this->consecutive_protocol_errors_sensor_->publish_state(0);
+}
+
+void AllpowersBLE::reset_protocol_error_latch_() {
+  this->protocol_diagnostics_.reset_session();
   if (this->protocol_error_binary_sensor_ != nullptr)
-    this->protocol_error_binary_sensor_->publish_state(state);
+    this->protocol_error_binary_sensor_->publish_state(false);
+  if (this->consecutive_protocol_errors_sensor_ != nullptr)
+    this->consecutive_protocol_errors_sensor_->publish_state(0);
+}
+
+void AllpowersBLE::publish_protocol_diagnostics_() {
+  if (this->protocol_error_binary_sensor_ != nullptr)
+    this->protocol_error_binary_sensor_->publish_state(this->protocol_diagnostics_.error_latched());
+  if (this->protocol_error_count_sensor_ != nullptr)
+    this->protocol_error_count_sensor_->publish_state(this->protocol_diagnostics_.total_errors());
+  if (this->consecutive_protocol_errors_sensor_ != nullptr)
+    this->consecutive_protocol_errors_sensor_->publish_state(this->protocol_diagnostics_.consecutive_errors());
+  if (this->last_protocol_error_text_sensor_ != nullptr) {
+    const std::string &reason = this->protocol_diagnostics_.last_error_reason();
+    this->last_protocol_error_text_sensor_->publish_state(reason.empty() ? "None" : reason);
+  }
+  if (this->last_protocol_error_uptime_sensor_ != nullptr) {
+    if (this->protocol_diagnostics_.last_error_reason().empty()) {
+      this->last_protocol_error_uptime_sensor_->publish_state(std::numeric_limits<float>::quiet_NaN());
+    } else {
+      this->last_protocol_error_uptime_sensor_->publish_state(
+          static_cast<float>(this->protocol_diagnostics_.last_error_uptime_ms()) / 1000.0f);
+    }
+  }
 }
 
 }  // namespace esphome::allpowers_ble
