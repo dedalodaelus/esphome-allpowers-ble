@@ -61,6 +61,15 @@ for published releases.
   responsibilities into dedicated protocol, transport, and entity modules.
 - Updated the validation workflow to lint and format all split C++
   source/header files and to run the native protocol tests as part of code quality checks.
+- Migrated the Python protocol regression tests from a standalone runner script
+  to the pytest framework (`python -m pytest tests`) for automatic test discovery
+  across the `tests/` directory.
+- Extended the native C++ protocol tests with a `make_notification()` frame
+  builder, status boundary conditions (zero SOC, max power, max remaining time),
+  version-formatter edge cases, frame-validation error paths (short frame,
+  invalid header, inconsistent length, bad checksum), wrong-command and
+  incomplete-payload parse errors, and the full set of control-frame
+  output-combination vectors.
 
 ### Fixed
 
