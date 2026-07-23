@@ -200,7 +200,18 @@ bluetooth_proxy:
 | Telemetry Available | A recent valid status frame exists |
 | Controls Available | Output commands can be sent safely |
 | Settings Available | A recent settings frame permits safe settings-backed writes |
-| BLE Protocol Error | Malformed notification or failed BLE transaction detected |
+| BLE Protocol Error | Error latch for the current GATT session |
+| BLE Protocol Error Count | Errors recorded since the ESP last restarted |
+| Consecutive BLE Protocol Errors | Current run of errors without a valid packet |
+| Last BLE Protocol Error | Last error category and reason |
+| Last BLE Protocol Error Uptime | ESP uptime when the last error occurred |
+
+The error latch and consecutive counter clear only after notification
+subscription succeeds for a new GATT session, not after the next valid packet.
+The total count, last reason and last-error uptime survive reconnects in RAM and
+reset on ESP reboot. Ordinary disconnections and stale telemetry do not count
+as protocol errors. These diagnostics use no preferences and therefore create
+no flash writes.
 
 When the BLE link is disconnected or telemetry expires, numeric and binary telemetry entities are
 invalidated. Native ESPHome controls cannot all publish availability independently; `Settings Available`

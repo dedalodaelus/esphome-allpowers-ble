@@ -45,6 +45,9 @@ for published releases.
 - Pure, hardware-independent GATT discovery decision helpers (`DiscoveryResult`
   and evaluators) used to classify characteristic and notification-subscription
   outcomes deterministically.
+- Runtime BLE protocol diagnostics with history counters and last-error details:
+  total protocol errors, consecutive protocol errors, last protocol error text,
+  and last protocol error uptime (all exposed as optional diagnostic entities).
 
 ### Changed
 
@@ -82,6 +85,15 @@ for published releases.
 - Extended both native C++ and Python protocol regression tests to accept
   boundary SOC values (`0` and `100`) and reject intact status frames with
   out-of-range SOC values (`101`-`255`).
+- Protocol diagnostics are now categorized by source (`transport`, `frame`,
+  `status`, `settings`, `device name`) and persisted in runtime memory across
+  reconnects so transient parse and transport failures remain actionable.
+- The protocol-error latch now resets only when a new GATT session becomes
+  ready; historical totals and the last recorded error are retained until
+  reboot while consecutive errors are cleared after successful protocol traffic.
+- Added native regression tests for protocol diagnostic history, including
+  total-error accumulation, consecutive-error reset on success, last-error
+  reason/uptime tracking, and session-latch reset behavior.
 
 ### Fixed
 
@@ -101,7 +113,7 @@ for published releases.
 - Reject semantically invalid status packets when the reported state of charge
   is outside `0`-`100`, with a dedicated protocol parse error message.
 
-## [0.1.0] - 2026/07/20
+## [0.1.0] - 2026-07-20
 
 ### Added
 
