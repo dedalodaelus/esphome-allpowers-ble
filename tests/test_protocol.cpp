@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "allpowers_ble_diagnostics.h"
 #include "allpowers_ble_discovery.h"
 #include "allpowers_ble_protocol.h"
 
@@ -255,6 +256,42 @@ void test_gatt_discovery_terminal_paths() {
   assert(!discovery_failed(DiscoveryResult::SUBSCRIBED));
 }
 
+void test_protocol_diagnostic_history() {
+  esphome::allpowers_ble::ProtocolDiagnostics diagnostics;
+  assert(diagnostics.total_errors() == 0);
+  assert(diagnostics.consecutive_errors() == 0);
+  assert(!diagnostics.error_latched());
+
+  diagnostics.record_error("frame: invalid XOR checksum", 12500);
+  assert(diagnostics.total_errors() == 1);
+  assert(diagnostics.consecutive_errors() == 1);
+  assert(diagnostics.error_latched());
+  assert(diagnostics.last_error_reason() == "frame: invalid XOR checksum");
+  assert(diagnostics.last_error_uptime_ms() == 12500);
+
+  diagnostics.record_success();
+  assert(diagnostics.total_errors() == 1);
+  assert(diagnostics.consecutive_errors() == 0);
+  assert(diagnostics.error_latched());
+  assert(diagnostics.last_error_reason() == "frame: invalid XOR checksum");
+
+  diagnostics.record_error("status: state of charge is outside 0-100%", 14000);
+  diagnostics.record_error("status: state of charge is outside 0-100%", 15000);
+  assert(diagnostics.total_errors() == 3);
+  assert(diagnostics.consecutive_errors() == 2);
+  assert(diagnostics.last_error_uptime_ms() == 15000);
+
+  diagnostics.reset_session();
+  assert(diagnostics.total_errors() == 3);
+  assert(diagnostics.consecutive_errors() == 0);
+  assert(!diagnostics.error_latched());
+  assert(diagnostics.last_error_reason() == "status: state of charge is outside 0-100%");
+
+  esphome::allpowers_ble::ProtocolDiagnostics after_reboot;
+  assert(after_reboot.total_errors() == 0);
+  assert(after_reboot.last_error_reason().empty());
+}
+
 }  // namespace
 
 int main() {
@@ -271,5 +308,6 @@ int main() {
   test_station_name_normalization();
   test_status_request();
   test_gatt_discovery_terminal_paths();
+  test_protocol_diagnostic_history();
   return 0;
 }
