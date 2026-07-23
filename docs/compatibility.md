@@ -9,7 +9,7 @@ A compatible device must provide:
 - GATT service `FFF0` by default, or another service supplied through `allpowers_service_uuid`
 - Notification or indication characteristic `FFF1`
 - Writable characteristic `FFF2`
-- Status notifications of at least 15 bytes with header `A5 65`
+- Status notifications of at least 16 bytes with header `A5 65`
 - The field offsets documented in [`protocol.md`](protocol.md)
 - The combined AC/DC/light control frame used by the upstream `allpowers-ble` project
 
