@@ -42,6 +42,9 @@ for published releases.
   and ESPHome dependencies installed automatically.
 - Native C++ protocol regression tests for the ALLPOWERS BLE protocol implementation.
   CI execution of the native protocol test binary during validation.
+- Pure, hardware-independent GATT discovery decision helpers (`DiscoveryResult`
+  and evaluators) used to classify characteristic and notification-subscription
+  outcomes deterministically.
 
 ### Changed
 
@@ -70,6 +73,9 @@ for published releases.
   invalid header, inconsistent length, bad checksum), wrong-command and
   incomplete-payload parse errors, and the full set of control-frame
   output-combination vectors.
+- Added native tests that cover every terminal GATT discovery outcome
+  (missing `FFF1`/`FFF2`, unsupported properties, and notification registration
+  queue/failure paths) plus successful subscribe readiness.
 
 ### Fixed
 
@@ -81,6 +87,11 @@ for published releases.
   changing work mode; reject the reserved two-bit value.
 - Disable the experimental car charger/12 V automotive socket entity by default
   until reliable control has been confirmed on hardware.
+- Recover from unusable GATT sessions by classifying discovery failures,
+  resetting transport/control snapshots, and scheduling reconnects for missing
+  characteristics, unsupported properties, or notification registration errors.
+- Corrected compatibility documentation to require a minimum 16-byte status
+  notification frame (header `A5 65`) instead of 15 bytes.
 
 ## [0.1.0] - 2026/07/20
 
