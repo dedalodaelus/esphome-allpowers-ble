@@ -92,7 +92,7 @@ void AllpowersBLE::loop() {
     ESP_LOGW(TAG, "No valid ALLPOWERS settings packet received within the configured timeout");
   }
 
-  if (this->node_state != espbt::ClientState::ESTABLISHED || this->disconnect_requested_)
+  if (this->disconnect_requested_)
     return;
 
   if (this->forced_reconnect_pending_) {
@@ -100,6 +100,9 @@ void AllpowersBLE::loop() {
                                                                               : "BLE session failure");
     return;
   }
+
+  if (this->node_state != espbt::ClientState::ESTABLISHED)
+    return;
 
   if (!this->connection_health_active_)
     return;
@@ -235,6 +238,10 @@ void AllpowersBLE::on_transport_notification_(const uint8_t *data, uint16_t leng
 }
 
 void AllpowersBLE::on_transport_error_(const char *reason, bool reconnect) {
+  // A failed discovery or BLE transaction invalidates every control snapshot
+  // immediately. The actual disconnect is deferred to loop() because ESP-IDF
+  // callbacks must not tear down their own GATT session.
+  this->reset_connection_state_();
   this->set_protocol_error_(true);
   if (reconnect)
     this->schedule_forced_reconnect_(reason);

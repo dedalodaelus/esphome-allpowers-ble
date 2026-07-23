@@ -11,6 +11,8 @@
 #include "esphome/components/ble_client/ble_client.h"
 #include "esphome/components/esp32_ble_tracker/esp32_ble_tracker.h"
 
+#include "allpowers_ble_discovery.h"
+
 #ifdef USE_ESP32
 #include <esp_gattc_api.h>
 
@@ -45,6 +47,8 @@ class AllpowersBLETransport : public ble_client::BLEClientNode {
   espbt::ESPBTUUID service_uuid_{espbt::ESPBTUUID::from_uint16(0xFFF0)};
 
  private:
+  void fail_discovery_(DiscoveryResult result);
+
   uint16_t notify_handle_{0};
   uint16_t write_handle_{0};
   esp_gatt_char_prop_t write_properties_{};

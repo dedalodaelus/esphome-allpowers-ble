@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "allpowers_ble_discovery.h"
 #include "allpowers_ble_protocol.h"
 
 namespace protocol = esphome::allpowers_ble::protocol;
@@ -213,6 +214,31 @@ void test_status_request() {
                std::array<uint8_t, 12>{{0xA5, 0x65, 0xB1, 0x00, 0x01, 0x06, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00}});
 }
 
+void test_gatt_discovery_terminal_paths() {
+  using esphome::allpowers_ble::DiscoveryResult;
+  using esphome::allpowers_ble::discovery_failed;
+  using esphome::allpowers_ble::evaluate_characteristics;
+  using esphome::allpowers_ble::evaluate_notification_registration;
+
+  assert(evaluate_characteristics(false, true, true, true) == DiscoveryResult::MISSING_NOTIFY_CHARACTERISTIC);
+  assert(evaluate_characteristics(true, false, true, true) == DiscoveryResult::MISSING_WRITE_CHARACTERISTIC);
+  assert(evaluate_characteristics(true, true, false, true) == DiscoveryResult::NOTIFY_UNSUPPORTED);
+  assert(evaluate_characteristics(true, true, true, false) == DiscoveryResult::WRITE_UNSUPPORTED);
+  assert(evaluate_characteristics(true, true, true, true) == DiscoveryResult::READY_TO_SUBSCRIBE);
+  assert(evaluate_notification_registration(false, false) == DiscoveryResult::NOTIFICATION_REGISTRATION_QUEUE_FAILED);
+  assert(evaluate_notification_registration(true, false) == DiscoveryResult::NOTIFICATION_REGISTRATION_FAILED);
+  assert(evaluate_notification_registration(true, true) == DiscoveryResult::SUBSCRIBED);
+
+  assert(discovery_failed(DiscoveryResult::MISSING_NOTIFY_CHARACTERISTIC));
+  assert(discovery_failed(DiscoveryResult::MISSING_WRITE_CHARACTERISTIC));
+  assert(discovery_failed(DiscoveryResult::NOTIFY_UNSUPPORTED));
+  assert(discovery_failed(DiscoveryResult::WRITE_UNSUPPORTED));
+  assert(discovery_failed(DiscoveryResult::NOTIFICATION_REGISTRATION_QUEUE_FAILED));
+  assert(discovery_failed(DiscoveryResult::NOTIFICATION_REGISTRATION_FAILED));
+  assert(!discovery_failed(DiscoveryResult::READY_TO_SUBSCRIBE));
+  assert(!discovery_failed(DiscoveryResult::SUBSCRIBED));
+}
+
 }  // namespace
 
 int main() {
@@ -227,5 +253,6 @@ int main() {
   test_device_name_codec();
   test_station_name_normalization();
   test_status_request();
+  test_gatt_discovery_terminal_paths();
   return 0;
 }

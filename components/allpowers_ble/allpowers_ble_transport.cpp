@@ -34,10 +34,18 @@ void AllpowersBLETransport::gattc_event_handler(esp_gattc_cb_event_t event, esp_
       auto *write_characteristic =
           this->parent()->get_characteristic(this->service_uuid_, espbt::ESPBTUUID::from_uint16(WRITE_UUID));
 
-      if (notify_characteristic == nullptr || write_characteristic == nullptr) {
-        ESP_LOGE(TAG, "Required GATT characteristics FFF1/FFF2 were not found under the configured service");
-        this->node_state = espbt::ClientState::ESTABLISHED;
-        this->on_transport_error_("required GATT characteristics were not found", false);
+      const bool notify_found = notify_characteristic != nullptr;
+      const bool write_found = write_characteristic != nullptr;
+      const bool notify_supported =
+          notify_found &&
+          (notify_characteristic->properties & (ESP_GATT_CHAR_PROP_BIT_NOTIFY | ESP_GATT_CHAR_PROP_BIT_INDICATE)) != 0;
+      const bool write_supported =
+          write_found &&
+          (write_characteristic->properties & (ESP_GATT_CHAR_PROP_BIT_WRITE | ESP_GATT_CHAR_PROP_BIT_WRITE_NR)) != 0;
+      const DiscoveryResult discovery =
+          evaluate_characteristics(notify_found, write_found, notify_supported, write_supported);
+      if (discovery_failed(discovery)) {
+        this->fail_discovery_(discovery);
         break;
       }
 
@@ -45,20 +53,11 @@ void AllpowersBLETransport::gattc_event_handler(esp_gattc_cb_event_t event, esp_
       this->write_handle_ = write_characteristic->handle;
       this->write_properties_ = write_characteristic->properties;
 
-      if ((notify_characteristic->properties & ESP_GATT_CHAR_PROP_BIT_NOTIFY) == 0 &&
-          (notify_characteristic->properties & ESP_GATT_CHAR_PROP_BIT_INDICATE) == 0) {
-        ESP_LOGE(TAG, "Characteristic FFF1 has neither notify nor indicate property");
-        this->node_state = espbt::ClientState::ESTABLISHED;
-        this->on_transport_error_("FFF1 has no notify or indicate property", false);
-        break;
-      }
-
       const esp_err_t status = esp_ble_gattc_register_for_notify(
           this->parent()->get_gattc_if(), this->parent()->get_remote_bda(), this->notify_handle_);
       if (status != ESP_OK) {
         ESP_LOGE(TAG, "esp_ble_gattc_register_for_notify failed: %s", esp_err_to_name(status));
-        this->node_state = espbt::ClientState::ESTABLISHED;
-        this->on_transport_error_("notification registration could not be queued", true);
+        this->fail_discovery_(evaluate_notification_registration(false, false));
       }
       break;
     }
@@ -66,11 +65,11 @@ void AllpowersBLETransport::gattc_event_handler(esp_gattc_cb_event_t event, esp_
     case ESP_GATTC_REG_FOR_NOTIFY_EVT:
       if (param->reg_for_notify.handle != this->notify_handle_)
         break;
-      this->node_state = espbt::ClientState::ESTABLISHED;
       if (param->reg_for_notify.status != ESP_GATT_OK) {
         ESP_LOGE(TAG, "Notification registration failed, status=%d", param->reg_for_notify.status);
-        this->on_transport_error_("notification registration failed", true);
+        this->fail_discovery_(evaluate_notification_registration(true, false));
       } else {
+        this->node_state = espbt::ClientState::ESTABLISHED;
         ESP_LOGI(TAG, "Subscribed to ALLPOWERS notifications");
         this->on_transport_ready_();
       }
@@ -94,7 +93,7 @@ void AllpowersBLETransport::gattc_event_handler(esp_gattc_cb_event_t event, esp_
 }
 
 bool AllpowersBLETransport::transport_ready_() const {
-  return this->node_state == espbt::ClientState::ESTABLISHED && this->write_handle_ != 0;
+  return this->node_state == espbt::ClientState::ESTABLISHED && this->notify_handle_ != 0 && this->write_handle_ != 0;
 }
 
 bool AllpowersBLETransport::write_transport_frame_(uint8_t *data, size_t length, const char *description) {
@@ -127,6 +126,13 @@ bool AllpowersBLETransport::write_transport_frame_(uint8_t *data, size_t length,
 }
 
 void AllpowersBLETransport::disconnect_transport_() { this->parent()->disconnect(); }
+
+void AllpowersBLETransport::fail_discovery_(DiscoveryResult result) {
+  const char *reason = discovery_result_message(result);
+  ESP_LOGE(TAG, "Unusable ALLPOWERS GATT session: %s; scheduling reconnect", reason);
+  this->reset_transport_state_();
+  this->on_transport_error_(reason, true);
+}
 
 void AllpowersBLETransport::reset_transport_state_() {
   this->notify_handle_ = 0;
