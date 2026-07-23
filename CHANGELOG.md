@@ -51,6 +51,11 @@ for published releases.
 - Dedicated CI fixture configs: shared `tests/ci-base.yaml` for common build
   setup and `tests/ci-multi.yaml` to validate two concurrent ALLPOWERS package
   instances with distinct IDs and MAC addresses.
+- Single-entry validation script (`scripts/validate.sh`) with independent
+  `code-quality`, `build`, and per-target `build-target` modes; it runs Python
+  syntax checks, Ruff/Flake8/Pylint, C++ format and lint checks, YAML lint,
+  native protocol tests, Python protocol tests, and the supported ESPHome
+  compile targets.
 
 ### Changed
 
@@ -102,6 +107,16 @@ for published releases.
   variables for framework and config path.
 - Refactored `tests/ci.yaml` to include the shared `ci-base.yaml` package so
   common compile scaffolding is centralized and reused across CI scenarios.
+- Refactored GitHub Actions validation into a matrix-driven `validation` job
+  that executes `code-quality` and each firmware build target independently via
+  the same local script modes used by contributors.
+- Preserved the existing CI check names in matrix entries (`Code quality`,
+  `Build ESP32 (ESP-IDF)`, `Build ESP32-S3 (ESP-IDF)`,
+  `Build ESP32 (Arduino)`, `Build ESP32 dual station (ESP-IDF)`) so
+  branch-protection rulesets keep working without renaming required checks.
+- Updated contributor and README validation instructions to document full-run,
+  per-cycle, and per-target execution (`build-target`) instead of only a single
+  all-in-one command.
 
 ### Fixed
 

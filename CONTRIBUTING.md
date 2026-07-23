@@ -55,4 +55,20 @@ pip install -r requirements-lint.txt -r requirements-ci.txt
 ./scripts/validate.sh
 ```
 
+You can also run each CI cycle independently:
+
+```bash
+./scripts/validate.sh code-quality
+./scripts/validate.sh build
+```
+
+To run a single build target (same shape used by the workflow matrix):
+
+```bash
+./scripts/validate.sh build-target esp32-idf
+./scripts/validate.sh build-target esp32s3-idf
+./scripts/validate.sh build-target esp32-arduino
+./scripts/validate.sh build-target esp32-multi-idf
+```
+
 Keep user-visible behavior documented in the README and changelog.

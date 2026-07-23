@@ -349,9 +349,25 @@ Run the complete validation suite used by CI:
 ./scripts/validate.sh
 ```
 
+Run each CI cycle independently:
+
+```bash
+./scripts/validate.sh code-quality
+./scripts/validate.sh build
+```
+
+Run a single build target (same target IDs used by the workflow matrix):
+
+```bash
+./scripts/validate.sh build-target esp32-idf
+./scripts/validate.sh build-target esp32s3-idf
+./scripts/validate.sh build-target esp32-arduino
+./scripts/validate.sh build-target esp32-multi-idf
+```
+
 The script runs every lint and test, then compiles classic ESP32 and ESP32-S3 with ESP-IDF,
 classic ESP32 with Arduino, and two independent station instances in one ESP-IDF firmware.
-GitHub Actions invokes this same command.
+GitHub Actions invokes the same script modes through a matrix job.
 
 ## Reporting compatibility
 

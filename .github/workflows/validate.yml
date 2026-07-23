@@ -20,9 +20,33 @@ concurrency:
 
 jobs:
   validation:
-    name: Complete validation
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 75
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Code quality
+            mode: code-quality
+            cache_deps: requirements-lint.txt
+          - name: Build ESP32 (ESP-IDF)
+            mode: build-target
+            target: esp32-idf
+            cache_deps: requirements-ci.txt
+          - name: Build ESP32-S3 (ESP-IDF)
+            mode: build-target
+            target: esp32s3-idf
+            cache_deps: requirements-ci.txt
+          - name: Build ESP32 (Arduino)
+            mode: build-target
+            target: esp32-arduino
+            cache_deps: requirements-ci.txt
+          - name: Build ESP32 dual station (ESP-IDF)
+            mode: build-target
+            target: esp32-multi-idf
+            cache_deps: requirements-ci.txt
 
     steps:
       - name: Check out repository
@@ -33,29 +57,36 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: |
-            requirements-lint.txt
-            requirements-ci.txt
+          cache-dependency-path: ${{ matrix.cache_deps }}
 
       - name: Cache PlatformIO
+        if: matrix.mode == 'build-target'
         uses: actions/cache@v4
         with:
           path: ~/.platformio
           key: >-
-            platformio-${{ runner.os }}-
-            ${{ hashFiles('requirements-ci.txt', 'scripts/validate.sh') }}
+            platformio-${{ runner.os }}-${{ matrix.target }}-
+            ${{ hashFiles('requirements-ci.txt', 'scripts/validate.sh', 'tests/ci.yaml', 'tests/ci-multi.yaml', 'tests/ci-base.yaml') }}
           restore-keys: |
+            platformio-${{ runner.os }}-${{ matrix.target }}-
             platformio-${{ runner.os }}-
 
-      - name: Install validation dependencies
+      - name: Install code-quality dependencies
+        if: matrix.mode == 'code-quality'
         run: |
           python -m pip install --upgrade pip
           pip install \
             -r requirements-lint.txt \
             -r requirements-ci.txt
 
-      - name: Run complete validation
-        run: ./scripts/validate.sh
+      - name: Install build dependencies
+        if: matrix.mode == 'build-target'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-ci.txt
+
+      - name: Run matrix validation target
+        run: ./scripts/validate.sh ${{ matrix.mode }} ${{ matrix.target || '' }}
 
   ci-success:
     name: CI passed
