@@ -8,6 +8,8 @@ for published releases.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-23
+
 ### Added
 
 - ECO mode state and control using the R600 settings command, gated by a fresh
@@ -216,4 +218,6 @@ for published releases.
 - Document that the optional ESPHome web server should use digest authentication
   rather than basic authentication.
 
-[Unreleased]: https://github.com/dedalodaelus/esphome-allpowers-ble/commits/devel
+[Unreleased]: https://github.com/dedalodaelus/esphome-allpowers-ble/compare/0.2.0...devel
+[0.1.0]: https://github.com/dedalodaelus/esphome-allpowers-ble/compare/0.1.0...0.2.0
+[0.2.0]: https://github.com/dedalodaelus/esphome-allpowers-ble/compare/0.1.0...0.2.0
