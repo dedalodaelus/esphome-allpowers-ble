@@ -57,9 +57,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: ESP32 (ESP-IDF)
+          - name: ESP32
             target: esp32-idf
-          - name: ESP32-S3 (ESP-IDF)
+          - name: ESP32-S3
             target: esp32s3-idf
           - name: ESP32 (Arduino)
             target: esp32-arduino
