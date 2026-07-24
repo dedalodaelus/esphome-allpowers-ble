@@ -201,9 +201,16 @@ bool normalize_station_name(const std::string &name, std::string *normalized_nam
   const std::string normalized = name.substr(first, last - first);
   if (!valid_utf8(reinterpret_cast<const uint8_t *>(normalized.data()), normalized.size()))
     return false;
-  for (const unsigned char byte : normalized) {
+  for (size_t index = 0; index < normalized.size(); index++) {
+    const unsigned char byte = static_cast<unsigned char>(normalized[index]);
     if (byte < 0x20 || byte == 0x7F)
       return false;
+    // UTF-8 encodes the C1 control range U+0080-U+009F as C2 80-C2 9F.
+    if (byte == 0xC2 && index + 1 < normalized.size()) {
+      const unsigned char continuation = static_cast<unsigned char>(normalized[index + 1]);
+      if (continuation >= 0x80 && continuation <= 0x9F)
+        return false;
+    }
   }
 
   std::string lowercase;

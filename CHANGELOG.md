@@ -23,6 +23,8 @@ for published releases.
   control, gated by the same fresh settings state required by its command.
 - Applied the canonical station-name normalization rules to outbound rename
   requests, including whitespace trimming and C0/C1 control rejection.
+- Apply canonical station-name validation and normalization to outbound
+  Bluetooth rename requests, including placeholder and control-character rejection.
 
 ## [0.2.0] - 2026-07-23
 
