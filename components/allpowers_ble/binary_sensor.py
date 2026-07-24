@@ -8,7 +8,6 @@ import esphome.codegen as cg
 from esphome.components import binary_sensor
 import esphome.config_validation as cv
 from esphome.const import (
-    DEVICE_CLASS_BATTERY_CHARGING,
     DEVICE_CLASS_CONNECTIVITY,
     DEVICE_CLASS_PROBLEM,
     ENTITY_CATEGORY_DIAGNOSTIC,
@@ -24,8 +23,8 @@ CONF_AC_OUTPUT = "ac_output"
 CONF_DC_OUTPUT = "dc_output"
 CONF_ECO_MODE = "eco_mode"
 CONF_LIGHT = "light"
-CONF_CHARGING = "charging"
-CONF_DISCHARGING = "discharging"
+CONF_INPUT_POWER_ACTIVE = "input_power_active"
+CONF_OUTPUT_POWER_ACTIVE = "output_power_active"
 CONF_PROTOCOL_ERROR = "protocol_error"
 
 # Connection, telemetry readiness and settings readiness are deliberately
@@ -76,12 +75,12 @@ BINARY_SENSORS = {
         "set_light_binary_sensor",
         binary_sensor.binary_sensor_schema(),
     ),
-    CONF_CHARGING: (
-        "set_charging_binary_sensor",
-        binary_sensor.binary_sensor_schema(device_class=DEVICE_CLASS_BATTERY_CHARGING),
+    CONF_INPUT_POWER_ACTIVE: (
+        "set_input_power_active_binary_sensor",
+        binary_sensor.binary_sensor_schema(),
     ),
-    CONF_DISCHARGING: (
-        "set_discharging_binary_sensor",
+    CONF_OUTPUT_POWER_ACTIVE: (
+        "set_output_power_active_binary_sensor",
         binary_sensor.binary_sensor_schema(),
     ),
     CONF_PROTOCOL_ERROR: (

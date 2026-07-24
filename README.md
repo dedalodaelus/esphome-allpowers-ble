@@ -51,7 +51,9 @@ same status frame format. See [`docs/compatibility.md`](docs/compatibility.md).
 - Experimental Bluetooth device-name query and update using command `0x35`;
   disabled by default, retried at most three times per connection and only evidenced by the
   official app for SOLIX/VOLIX P1800
-- Charging and discharging indicators derived from power flow
+- Input and output power activity indicators derived from measured power flow
+  - Both can be active during pass-through operation; neither entity claims the
+    direction of battery current.
 - BLE connection state: `Disabled`, `Searching` or `Connected`
 - Persistent connection control:
   - ON searches until connected and reconnects after link loss
@@ -187,8 +189,8 @@ bluetooth_proxy:
 | DC Output Status | Binary sensor |
 | Light Status | Binary sensor |
 | ECO Mode Status | Binary sensor |
-| Battery Charging | Binary sensor |
-| Battery Discharging | Binary sensor |
+| Input Power Active | Binary sensor |
+| Output Power Active | Binary sensor |
 
 ### Connection and diagnostics
 

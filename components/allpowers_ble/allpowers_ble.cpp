@@ -380,10 +380,10 @@ void AllpowersBLE::process_status_(const protocol::StatusData &status) {
     this->dc_output_binary_sensor_->publish_state(this->dc_on_);
   if (this->light_binary_sensor_ != nullptr)
     this->light_binary_sensor_->publish_state(this->light_on_);
-  if (this->charging_binary_sensor_ != nullptr)
-    this->charging_binary_sensor_->publish_state(status.input_power > 0);
-  if (this->discharging_binary_sensor_ != nullptr)
-    this->discharging_binary_sensor_->publish_state(status.output_power > 0);
+  if (this->input_power_active_binary_sensor_ != nullptr)
+    this->input_power_active_binary_sensor_->publish_state(status.input_power > 0);
+  if (this->output_power_active_binary_sensor_ != nullptr)
+    this->output_power_active_binary_sensor_->publish_state(status.output_power > 0);
 
   this->have_status_ = true;
   this->data_fresh_ = true;
@@ -655,13 +655,15 @@ bool AllpowersBLE::request_device_name(const std::string &name) {
     ESP_LOGW(TAG, "Ignoring device-name command: BLE client is not ready");
     return false;
   }
-  if (name.empty() || name.size() > protocol::MAX_DEVICE_NAME_LENGTH ||
-      !protocol::valid_utf8(reinterpret_cast<const uint8_t *>(name.data()), name.size())) {
-    ESP_LOGW(TAG, "Ignoring device-name command: name must be valid UTF-8 and 1-%u bytes",
+  std::string normalized_name;
+  if (!protocol::normalize_station_name(name, &normalized_name)) {
+    ESP_LOGW(TAG,
+             "Ignoring device-name command: use a non-placeholder UTF-8 name of 1-%u bytes without control "
+             "characters",
              static_cast<unsigned>(protocol::MAX_DEVICE_NAME_LENGTH));
     return false;
   }
-  return this->send_device_name_frame_(name);
+  return this->send_device_name_frame_(normalized_name);
 }
 
 bool AllpowersBLE::request_device_name_query_() { return this->send_device_name_frame_(""); }
@@ -787,10 +789,10 @@ void AllpowersBLE::invalidate_data_entities_() {
     this->dc_output_binary_sensor_->invalidate_state();
   if (this->light_binary_sensor_ != nullptr)
     this->light_binary_sensor_->invalidate_state();
-  if (this->charging_binary_sensor_ != nullptr)
-    this->charging_binary_sensor_->invalidate_state();
-  if (this->discharging_binary_sensor_ != nullptr)
-    this->discharging_binary_sensor_->invalidate_state();
+  if (this->input_power_active_binary_sensor_ != nullptr)
+    this->input_power_active_binary_sensor_->invalidate_state();
+  if (this->output_power_active_binary_sensor_ != nullptr)
+    this->output_power_active_binary_sensor_->invalidate_state();
 }
 
 void AllpowersBLE::invalidate_settings_entities_() {

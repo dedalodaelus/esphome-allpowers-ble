@@ -331,14 +331,14 @@ binary_sensor:
       name: "Light Status"
       device_id: ${allpowers_id}_device
 
-    charging:
-      id: ${allpowers_id}_charging
-      name: "Battery Charging"
+    input_power_active:
+      id: ${allpowers_id}_input_power_active
+      name: "Input Power Active"
       device_id: ${allpowers_id}_device
 
-    discharging:
-      id: ${allpowers_id}_discharging
-      name: "Battery Discharging"
+    output_power_active:
+      id: ${allpowers_id}_output_power_active
+      name: "Output Power Active"
       device_id: ${allpowers_id}_device
 
     protocol_error:

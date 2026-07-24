@@ -102,8 +102,8 @@ class AllpowersBLE final : public Component, public AllpowersBLETransport {
   void set_dc_output_binary_sensor(binary_sensor::BinarySensor *sensor) { this->dc_output_binary_sensor_ = sensor; }
   void set_eco_mode_binary_sensor(binary_sensor::BinarySensor *sensor) { this->eco_mode_binary_sensor_ = sensor; }
   void set_light_binary_sensor(binary_sensor::BinarySensor *sensor) { this->light_binary_sensor_ = sensor; }
-  void set_charging_binary_sensor(binary_sensor::BinarySensor *sensor) { this->charging_binary_sensor_ = sensor; }
-  void set_discharging_binary_sensor(binary_sensor::BinarySensor *sensor) { this->discharging_binary_sensor_ = sensor; }
+  void set_input_power_active_binary_sensor(binary_sensor::BinarySensor *sensor) { this->input_power_active_binary_sensor_ = sensor; }
+  void set_output_power_active_binary_sensor(binary_sensor::BinarySensor *sensor) { this->output_power_active_binary_sensor_ = sensor; }
   void set_protocol_error_binary_sensor(binary_sensor::BinarySensor *sensor) {
     this->protocol_error_binary_sensor_ = sensor;
   }
@@ -225,8 +225,8 @@ class AllpowersBLE final : public Component, public AllpowersBLETransport {
   binary_sensor::BinarySensor *dc_output_binary_sensor_{nullptr};
   binary_sensor::BinarySensor *eco_mode_binary_sensor_{nullptr};
   binary_sensor::BinarySensor *light_binary_sensor_{nullptr};
-  binary_sensor::BinarySensor *charging_binary_sensor_{nullptr};
-  binary_sensor::BinarySensor *discharging_binary_sensor_{nullptr};
+  binary_sensor::BinarySensor *input_power_active_binary_sensor_{nullptr};
+  binary_sensor::BinarySensor *output_power_active_binary_sensor_{nullptr};
   binary_sensor::BinarySensor *protocol_error_binary_sensor_{nullptr};
 
   ProtocolDiagnostics protocol_diagnostics_;

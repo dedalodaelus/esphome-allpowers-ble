@@ -10,6 +10,10 @@ for published releases.
 
 ### Fixed
 
+- Renamed the power-flow binary sensors to `Input Power Active` and
+  `Output Power Active` so they no longer claim an unverified battery
+  charging direction; documented the entity-ID migration and valid
+  simultaneous pass-through state.
 - Fixed the protocol diagnostic warning log format so both error counters use
   the correct `PRIu32` conversion specifier without compiler warnings.
 - Recover the BLE session after a synchronous GATT write queue failure by
@@ -17,6 +21,8 @@ for published releases.
   reconnect path.
 - Added the missing Home Assistant availability wrapper for the Car Charger
   control, gated by the same fresh settings state required by its command.
+- Applied the canonical station-name normalization rules to outbound rename
+  requests, including whitespace trimming and C0/C1 control rejection.
 
 ## [0.2.0] - 2026-07-23
 
