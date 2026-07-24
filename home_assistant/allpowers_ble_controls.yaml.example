@@ -1,8 +1,8 @@
 # Optional Home Assistant template switches.
 #
 # ESPHome switch states are boolean and cannot become unavailable individually. Output wrappers use
-# "Controls Available"; ECO uses the stricter "Settings Available" condition because its command
-# must preserve a complete settings snapshot.
+# "Controls Available"; ECO and Car Charger use the stricter "Settings Available" condition because
+# their commands must preserve a complete settings snapshot.
 #
 # Replace the entity IDs below with those created in your Home Assistant instance. Hide, but do not
 # disable, the original ESPHome switches because these wrappers call them.
@@ -94,6 +94,32 @@ template:
           - action: switch.turn_off
             target:
               entity_id: switch.allpowers_eco_mode
+
+      - name: "ALLPOWERS Car Charger"
+        unique_id: car_charger
+        default_entity_id: switch.allpowers_car_charger_available
+        icon: mdi:car-battery
+        availability: >-
+          {{
+            is_state('binary_sensor.allpowers_settings_available', 'on')
+            and has_value('switch.allpowers_car_charger')
+          }}
+        state: >-
+          {{ is_state('switch.allpowers_car_charger', 'on') }}
+        turn_on:
+          - condition: state
+            entity_id: binary_sensor.allpowers_settings_available
+            state: "on"
+          - action: switch.turn_on
+            target:
+              entity_id: switch.allpowers_car_charger
+        turn_off:
+          - condition: state
+            entity_id: binary_sensor.allpowers_settings_available
+            state: "on"
+          - action: switch.turn_off
+            target:
+              entity_id: switch.allpowers_car_charger
 
       - name: "ALLPOWERS Light"
         unique_id: light
