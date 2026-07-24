@@ -8,6 +8,13 @@ for published releases.
 
 ## [Unreleased]
 
+### Added
+
+- Added a security policy with private reporting guidance, supported-version
+  information, response targets and safe testing boundaries, plus a pull
+  request template covering test evidence, hardware details, protocol
+  provenance, compatibility, documentation and changelog requirements.
+
 ### Fixed
 
 - Renamed the power-flow binary sensors to `Input Power Active` and
