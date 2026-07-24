@@ -1,18 +1,25 @@
-name: Bug or compatibility report
-description: Report a reproducible problem or results from another ALLPOWERS model
-title: "[Bug/Compatibility]: "
+name: Bug report
+description: Report a reproducible defect in an already supported configuration
+title: "[Bug]: "
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        Remove Wi-Fi passwords, API keys, OTA passwords and unrelated BLE data before submitting.
-        A successful connection alone does not prove protocol compatibility.
+        Remove Wi-Fi passwords, API keys, OTA passwords, complete BLE addresses and unrelated BLE data before submitting.
+        Use the separate Compatibility report form when evaluating a new model or firmware family.
+  - type: input
+    id: component_revision
+    attributes:
+      label: Component release, tag or commit
+      placeholder: "v0.2.1 or e61b943"
+    validations:
+      required: true
   - type: input
     id: model
     attributes:
       label: Exact model and hardware revision
-      placeholder: "R600, S300, label revision, serial prefix if relevant"
+      placeholder: "R600, label revision, serial prefix if relevant"
     validations:
       required: true
   - type: input
@@ -20,11 +27,8 @@ body:
     attributes:
       label: Power-station firmware version
       placeholder: "Version shown by the official app"
-  - type: input
-    id: ble_name
-    attributes:
-      label: BLE local name
-      placeholder: "For example AP S300"
+    validations:
+      required: true
   - type: input
     id: esphome_version
     attributes:
@@ -40,21 +44,32 @@ body:
     validations:
       required: true
   - type: dropdown
-    id: controls_tested
+    id: regression
     attributes:
-      label: Output controls physically tested
+      label: Did this work in an earlier component revision?
       options:
-        - None; telemetry only
-        - AC only
-        - DC only
-        - Light only
-        - AC, DC and light
+        - "No"
+        - "Yes"
+        - "Unknown"
     validations:
       required: true
   - type: textarea
-    id: behavior
+    id: expected
     attributes:
-      label: Expected and actual behavior
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction steps
+      description: Include the smallest relevant YAML fragment and physical preconditions.
     validations:
       required: true
   - type: textarea
@@ -62,3 +77,12 @@ body:
     attributes:
       label: Sanitized ESPHome logs
       render: shell
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed credentials, complete addresses and unrelated BLE traffic.
+          required: true

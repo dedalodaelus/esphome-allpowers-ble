@@ -26,14 +26,14 @@ A compatible device must provide:
 
 ## How to report a compatible model
 
-Open a compatibility report with:
+Open the dedicated [Compatibility report](https://github.com/dedalodaelus/esphome-allpowers-ble/issues/new?template=compatibility_report.yml) and include:
 
-1. Exact model and label revision.
-2. Firmware version shown by the official application.
-3. BLE local name and MAC-address stability.
-4. GATT service and characteristic UUIDs.
-5. Sanitized notification frames.
-6. Confirmation of battery, input, output and time values.
-7. Separate confirmation of AC, DC and light controls.
+1. Exact model, label/hardware revision and station firmware.
+2. BLE local name and whether the address is stable or rotates.
+3. Component revision, ESPHome version, ESP32 board and framework.
+4. Service UUID plus notification/write UUIDs and their properties.
+5. At least one complete sanitized notification frame and its capture conditions.
+6. Values shown simultaneously by the official application or display and by ESPHome.
+7. Initial and final physical state for each control tested, or an explicit telemetry-only result.
 
 A model should not be listed as supported based only on a successful BLE connection.

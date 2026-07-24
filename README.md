@@ -373,18 +373,9 @@ GitHub Actions invokes the same script modes through a matrix job.
 
 ## Reporting compatibility
 
-Include:
+Use the dedicated [Compatibility report](https://github.com/dedalodaelus/esphome-allpowers-ble/issues/new?template=compatibility_report.yml), not the bug form. It requests the exact model/revision and firmware, BLE name/address behavior, component and ESPHome revisions, board/framework, GATT UUIDs and properties, a complete sanitized frame with capture conditions, simultaneous official/decoded values and physical control results.
 
-- Exact model and hardware revision
-- Firmware version shown by the official application
-- BLE local name
-- Service and characteristic UUIDs
-- ESPHome version
-- ESP32 model and framework
-- Sanitized logs
-- Which readings and controls were physically verified
-
-Never publish Wi-Fi credentials, API encryption keys, OTA passwords or complete Android bug reports.
+A connection without matching frames and values is not compatibility evidence. Never publish Wi-Fi credentials, API encryption keys, OTA passwords, complete BLE addresses, serial numbers or complete Android bug reports.
 
 ## Credits and development disclosure
 

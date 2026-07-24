@@ -5,19 +5,21 @@ Contributions and hardware compatibility reports are welcome.
 ## Before opening an issue
 
 1. Reproduce the problem with the latest tagged release.
-2. Use ESPHome `DEBUG` logs where possible.
-3. Remove Wi-Fi passwords, API keys, OTA passwords, public addresses and unrelated BLE data.
-4. Include the exact ALLPOWERS model, hardware revision, firmware version and BLE local name.
-5. State whether you verified telemetry only or also tested AC, DC and light control.
+2. Use the **Bug report** form for a defect in an already supported configuration.
+3. Use the **Compatibility report** form for a new model or firmware family.
+4. Use ESPHome `DEBUG` logs where possible.
+5. Remove Wi-Fi passwords, API keys, OTA passwords, complete addresses, serial numbers and unrelated BLE data.
 
 ## Compatibility reports
 
-A successful BLE connection alone is not enough to claim compatibility. Include:
+A successful BLE connection alone is not enough to claim compatibility. The compatibility form requires:
 
-- GATT service and characteristic UUIDs
-- At least one sanitized status notification
-- Values shown simultaneously by the official application or device display
-- Results of each output control tested
+- exact model, hardware revision, firmware and BLE local-name behavior;
+- component revision, ESPHome version, board and framework;
+- service, notification and write UUIDs with characteristic properties;
+- at least one complete sanitized notification frame and its capture conditions;
+- simultaneous official display/app and decoded values;
+- the initial and final physical state of every control tested.
 
 ## Protocol changes
 

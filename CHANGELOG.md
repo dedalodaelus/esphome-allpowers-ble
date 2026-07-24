@@ -15,6 +15,12 @@ for published releases.
   request template covering test evidence, hardware details, protocol
   provenance, compatibility, documentation and changelog requirements.
 
+### Changed
+
+- Split bug and compatibility issue forms and require the diagnostic
+  evidence needed to evaluate a new model safely.
+
+
 ### Fixed
 
 - Renamed the power-flow binary sensors to `Input Power Active` and
