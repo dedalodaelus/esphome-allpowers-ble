@@ -820,7 +820,7 @@ void AllpowersBLE::record_protocol_error_(const char *category, const char *reas
   detail.append(": ");
   detail.append(reason);
   this->protocol_diagnostics_.record_error(detail, millis());
-  ESP_LOGW(TAG, "BLE diagnostic error #" PRIu32 " (consecutive #" PRIu32 "): %s",
+  ESP_LOGW(TAG, "BLE diagnostic error #%" PRIu32 " (consecutive #%" PRIu32 "): %s",
            this->protocol_diagnostics_.total_errors(), this->protocol_diagnostics_.consecutive_errors(),
            detail.c_str());
   this->publish_protocol_diagnostics_();

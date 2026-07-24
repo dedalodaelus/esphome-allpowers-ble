@@ -8,6 +8,11 @@ for published releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed the protocol diagnostic warning log format so both error counters use
+  the correct `PRIu32` conversion specifier without compiler warnings.
+
 ## [0.2.0] - 2026-07-23
 
 ### Added
