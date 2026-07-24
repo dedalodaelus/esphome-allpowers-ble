@@ -12,6 +12,9 @@ for published releases.
 
 - Fixed the protocol diagnostic warning log format so both error counters use
   the correct `PRIu32` conversion specifier without compiler warnings.
+- Recover the BLE session after a synchronous GATT write queue failure by
+  invalidating stale transport handles and scheduling the existing deferred
+  reconnect path.
 
 ## [0.2.0] - 2026-07-23
 

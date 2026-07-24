@@ -108,8 +108,9 @@ bool AllpowersBLETransport::write_transport_frame_(uint8_t *data, size_t length,
   } else if ((this->write_properties_ & ESP_GATT_CHAR_PROP_BIT_WRITE_NR) != 0) {
     write_type = ESP_GATT_WRITE_TYPE_NO_RSP;
   } else {
-    ESP_LOGE(TAG, "Characteristic FFF2 does not advertise a writable property");
-    this->on_transport_error_("FFF2 is not writable", false);
+    ESP_LOGE(TAG, "Characteristic FFF2 does not advertise a writable property; scheduling reconnect");
+    this->reset_transport_state_();
+    this->on_transport_error_("FFF2 is not writable", true);
     return false;
   }
 
@@ -118,8 +119,12 @@ bool AllpowersBLETransport::write_transport_frame_(uint8_t *data, size_t length,
       esp_ble_gattc_write_char(this->parent()->get_gattc_if(), this->parent()->get_conn_id(), this->write_handle_,
                                static_cast<uint16_t>(length), data, write_type, ESP_GATT_AUTH_REQ_NONE);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "esp_ble_gattc_write_char failed: %s", esp_err_to_name(result));
-    this->on_transport_error_("GATT write could not be queued", false);
+    ESP_LOGE(TAG, "esp_ble_gattc_write_char failed: %s (%d); scheduling reconnect", esp_err_to_name(result), result);
+    // A synchronous queue failure has no later WRITE_CHAR event to recover the
+    // session. Invalidate the discovered handles now and defer disconnecting
+    // to loop() through the component's existing reconnect path.
+    this->reset_transport_state_();
+    this->on_transport_error_("GATT write could not be queued", true);
     return false;
   }
   return true;
