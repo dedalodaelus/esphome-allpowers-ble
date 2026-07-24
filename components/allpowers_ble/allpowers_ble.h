@@ -102,8 +102,12 @@ class AllpowersBLE final : public Component, public AllpowersBLETransport {
   void set_dc_output_binary_sensor(binary_sensor::BinarySensor *sensor) { this->dc_output_binary_sensor_ = sensor; }
   void set_eco_mode_binary_sensor(binary_sensor::BinarySensor *sensor) { this->eco_mode_binary_sensor_ = sensor; }
   void set_light_binary_sensor(binary_sensor::BinarySensor *sensor) { this->light_binary_sensor_ = sensor; }
-  void set_input_power_active_binary_sensor(binary_sensor::BinarySensor *sensor) { this->input_power_active_binary_sensor_ = sensor; }
-  void set_output_power_active_binary_sensor(binary_sensor::BinarySensor *sensor) { this->output_power_active_binary_sensor_ = sensor; }
+  void set_input_power_active_binary_sensor(binary_sensor::BinarySensor *sensor) {
+    this->input_power_active_binary_sensor_ = sensor;
+  }
+  void set_output_power_active_binary_sensor(binary_sensor::BinarySensor *sensor) {
+    this->output_power_active_binary_sensor_ = sensor;
+  }
   void set_protocol_error_binary_sensor(binary_sensor::BinarySensor *sensor) {
     this->protocol_error_binary_sensor_ = sensor;
   }
