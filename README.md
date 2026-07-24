@@ -96,15 +96,14 @@ home_assistant/              Optional unavailable-state wrapper switches
 
 ```yaml
 external_components:
-  - source: github://dedalodaelus/esphome-allpowers-ble@main
+  - source: github://dedalodaelus/esphome-allpowers-ble@0.2.1
     components:
       - allpowers_ble
 
 packages:
   allpowers_station:
     url: https://github.com/dedalodaelus/esphome-allpowers-ble
-    ref: main
-    refresh: 1d
+    ref: 0.2.1
     files:
       - path: packages/allpowers_ble.yaml
         vars:
@@ -122,11 +121,16 @@ allpowers_station_mac: "AA:BB:CC:DD:EE:FF"
 The public package contains no secret lookups of its own. Passing a local secret through package
 variables keeps the device address outside the repository.
 
+The default installation is pinned to release `0.2.1`. Source updates are therefore deliberate instead of following the moving `main` branch. To upgrade, review the release notes and migration guide, change both references to the same newer release, compile, and validate telemetry and controls on the exact station model and firmware. To roll back, restore the previous release number in both references and compile again.
+
 Complete configurations are provided in:
 
-- [`examples/minimal.yaml`](examples/minimal.yaml)
-- [`examples/bluetooth-proxy.yaml`](examples/bluetooth-proxy.yaml)
-- [`examples/local-development.yaml`](examples/local-development.yaml)
+- [`examples/minimal.yaml`](examples/minimal.yaml) — stable release
+- [`examples/bluetooth-proxy.yaml`](examples/bluetooth-proxy.yaml) — stable release
+- [`examples/development-main.yaml`](examples/development-main.yaml) — moving `main` branch for development only
+- [`examples/local-development.yaml`](examples/local-development.yaml) — local checkout
+
+Release verification and publication steps are documented in [`docs/releasing.md`](docs/releasing.md).
 
 ## Package variables
 
@@ -373,9 +377,18 @@ GitHub Actions invokes the same script modes through a matrix job.
 
 ## Reporting compatibility
 
-Use the dedicated [Compatibility report](https://github.com/dedalodaelus/esphome-allpowers-ble/issues/new?template=compatibility_report.yml), not the bug form. It requests the exact model/revision and firmware, BLE name/address behavior, component and ESPHome revisions, board/framework, GATT UUIDs and properties, a complete sanitized frame with capture conditions, simultaneous official/decoded values and physical control results.
+Include:
 
-A connection without matching frames and values is not compatibility evidence. Never publish Wi-Fi credentials, API encryption keys, OTA passwords, complete BLE addresses, serial numbers or complete Android bug reports.
+- Exact model and hardware revision
+- Firmware version shown by the official application
+- BLE local name
+- Service and characteristic UUIDs
+- ESPHome version
+- ESP32 model and framework
+- Sanitized logs
+- Which readings and controls were physically verified
+
+Never publish Wi-Fi credentials, API encryption keys, OTA passwords or complete Android bug reports.
 
 ## Credits and development disclosure
 

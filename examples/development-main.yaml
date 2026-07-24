@@ -1,6 +1,9 @@
+# DEVELOPMENT ONLY: this configuration follows the moving main branch.
+# It may receive incompatible or unreviewed changes without a version update.
+
 substitutions:
-  node_name: allpowers-ble-bridge
-  node_friendly_name: ALLPOWERS BLE Bridge
+  node_name: allpowers-ble-development
+  node_friendly_name: ALLPOWERS BLE Development
 
 esphome:
   name: ${node_name}
@@ -32,11 +35,12 @@ captive_portal:
 
 
 external_components:
-  # Loads the custom Python/C++ platform from the release below.
+  # Loads the custom Python/C++ platform from the moving main branch below.
   - source:
       type: git
       url: https://github.com/dedalodaelus/esphome-allpowers-ble
-      ref: 0.2.1
+      ref: main
+    refresh: 1d
     components:
       - allpowers_ble
 
@@ -46,7 +50,8 @@ packages:
   # with external_components so code and package schemas always match.
   allpowers_station:
     url: https://github.com/dedalodaelus/esphome-allpowers-ble
-    ref: 0.2.1
+    ref: main
+    refresh: 1d
     files:
       - path: packages/allpowers_ble.yaml
         vars:

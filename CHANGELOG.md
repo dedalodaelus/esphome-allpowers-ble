@@ -10,6 +10,13 @@ for published releases.
 
 ### Added
 
+- Pinned stable installation instructions and examples to release `0.2.1`,
+  added a clearly marked `main` development example,
+ and documented release verification, upgrade and rollback procedures.
+- Split GitHub issue intake into dedicated bug and compatibility forms;
+  the compatibility form now requires GATT UUIDs, a complete sanitized
+  BLE notification, simultaneous station/application values and
+  explicit control-test results.
 - Added a security policy with private reporting guidance, supported-version
   information, response targets and safe testing boundaries, plus a pull
   request template covering test evidence, hardware details, protocol
