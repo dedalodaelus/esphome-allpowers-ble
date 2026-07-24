@@ -224,9 +224,9 @@ void test_station_name_normalization() {
   assert(!protocol::normalize_station_name("   ", &normalized));
   assert(!protocol::normalize_station_name("  UnKnOwN  ", &normalized));
   assert(!protocol::normalize_station_name(std::string("bad\0name", 8), &normalized));
-  assert(!protocol::normalize_station_name(std::string("bad\x1F" "name", 8), &normalized));
-  assert(!protocol::normalize_station_name(std::string("bad\x7F" "name", 8), &normalized));
-  assert(!protocol::normalize_station_name(std::string("bad\xC2\x85" "name", 9), &normalized));
+  assert(!protocol::normalize_station_name(std::string("bad\x1Fname", 8), &normalized));
+  assert(!protocol::normalize_station_name(std::string("bad\x7Fname", 8), &normalized));
+  assert(!protocol::normalize_station_name(std::string("bad\xC2\x85name", 9), &normalized));
   assert(!protocol::normalize_station_name(std::string(protocol::MAX_DEVICE_NAME_LENGTH + 1, 'A'), &normalized));
 
   const std::string maximum_name(protocol::MAX_DEVICE_NAME_LENGTH, 'A');
