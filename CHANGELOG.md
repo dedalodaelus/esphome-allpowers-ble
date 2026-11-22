@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 for published releases.
 
+## [Unreleased]
+
+### Changed
+
+- Require ESPHome 2026.11.0. ESPHome 2026.11 made `relation` mandatory for
+  `esphome: devices:` entries, so the station sub-device now declares
+  `relation: via`. Users on ESPHome 2026.7 through 2026.10 can continue to use
+  release 0.2.1.
+
+### Fixed
+
+- Replace the removed `format_hex_pretty` helper with
+  `format_hex_pretty_to` in the notification and transport debug logs. The
+  replacement helper is already available in ESPHome 2026.7.2, so this part
+  of the change is backward compatible.
+- Bump the CI ESPHome pin to 2026.11.0 so the supported version is exercised.
+
 ## [0.2.1] - 2026-07-24
 
 ### Added

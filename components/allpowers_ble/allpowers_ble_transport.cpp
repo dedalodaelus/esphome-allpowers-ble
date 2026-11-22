@@ -3,6 +3,7 @@
 #include "allpowers_ble_transport.h"
 
 #include <esp_err.h>
+#include <string>
 
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
@@ -114,7 +115,11 @@ bool AllpowersBLETransport::write_transport_frame_(uint8_t *data, size_t length,
     return false;
   }
 
-  ESP_LOGD(TAG, "Writing %s frame: %s", description, format_hex_pretty(data, length).c_str());
+  {
+    std::string hex(length * 3, '\0');
+    format_hex_pretty_to(hex.data(), hex.size(), data, length);
+    ESP_LOGD(TAG, "Writing %s frame: %s", description, hex.c_str());
+  }
   const esp_err_t result =
       esp_ble_gattc_write_char(this->parent()->get_gattc_if(), this->parent()->get_conn_id(), this->write_handle_,
                                static_cast<uint16_t>(length), data, write_type, ESP_GATT_AUTH_REQ_NONE);

@@ -249,7 +249,11 @@ void AllpowersBLE::on_transport_error_(const char *reason, bool reconnect) {
 }
 
 void AllpowersBLE::process_notification_(const uint8_t *data, uint16_t length) {
-  ESP_LOGV(TAG, "Notification (%u bytes): %s", length, format_hex_pretty(data, length).c_str());
+  {
+    std::string hex(length * 3, '\0');
+    format_hex_pretty_to(hex.data(), hex.size(), data, length);
+    ESP_LOGV(TAG, "Notification (%u bytes): %s", length, hex.c_str());
+  }
 
   if (this->packet_length_sensor_ != nullptr)
     this->packet_length_sensor_->publish_state(length);

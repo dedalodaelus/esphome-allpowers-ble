@@ -73,7 +73,7 @@ same status frame format. See [`docs/compatibility.md`](docs/compatibility.md).
 ## Requirements
 
 - ESP32 with BLE client support
-- ESPHome `2026.7.0` or newer
+- ESPHome `2026.11.0` or newer
 - ESP-IDF framework recommended; both ESP-IDF and Arduino are compiled in CI
 - Stable BLE MAC address for the power station
 - A compatible `FFF0`/`FFF1`/`FFF2` GATT layout and packet format
