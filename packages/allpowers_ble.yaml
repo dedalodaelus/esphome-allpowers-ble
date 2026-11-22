@@ -44,12 +44,13 @@ defaults:
   allpowers_rssi_update_interval: 60s
 
 esphome:
-  min_version: 2026.7.0
+  min_version: 2026.11.0
 
   # Expose the power station as a separate logical device in Home Assistant.
   devices:
     - id: ${allpowers_id}_device
       name: "${allpowers_name}"
+      relation: via
 
   on_boot:
     priority: -100
